@@ -1,0 +1,545 @@
+#!/bin/bash
+# ============================================================================
+# Medical Diary v2 — Safe Two-Folder Deploy Script (Windows Git Bash)
+# PROJECT_DIR (рабочая папка) -> GIT_DIR (локальный репозиторий) -> GitHub
+# ============================================================================
+set -uo pipefail
+
+# ---------- Пути (Windows Git Bash использует Unix-стиль: /c/, /s/) ----------
+PROJECT_DIR="${PROJECT_DIR:-/s/medical_diary_v2}"
+GIT_DIR="${GIT_DIR:-/c/Users/Azerty/GitHub/medical_diary_v2}"
+GITHUB_REPO="ceshbox-code/medical_diary_v2"
+GITHUB_URL="https://github.com/${GITHUB_REPO}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
+
+# ---------- Цвета ----------
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log()   { echo -e "${BLUE}==>${NC} $1"; }
+ok()    { echo -e "${GREEN}✅${NC} $1"; }
+warn()  { echo -e "${YELLOW}⚠️${NC}  $1"; }
+err()   { echo -e "${RED}❌${NC} $1" >&2; }
+info()  { echo -e "${CYAN}ℹ️${NC}  $1"; }
+title() { echo -e "\n${BOLD}${CYAN}$1${NC}"; }
+
+# ---------- Header ----------
+clear 2>/dev/null || true
+echo -e "${BOLD}${MAGENTA}╔═══════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}${MAGENTA}║   🏥 Medical Diary v2 — Safe Two-Folder Deploy║${NC}"
+echo -e "${BOLD}${MAGENTA}╚═══════════════════════════════════════════════╝${NC}"
+echo
+echo -e "  📂 Проект (источник): ${CYAN}${PROJECT_DIR}${NC}"
+echo -e "  📂 Git-репозиторий:   ${CYAN}${GIT_DIR}${NC}"
+echo -e "  🌐 GitHub:            ${CYAN}${GITHUB_URL}${NC}"
+echo
+
+# ---------- Проверка существования папок ----------
+if [ ! -d "$PROJECT_DIR" ]; then
+    err "Папка проекта не найдена: $PROJECT_DIR"
+    exit 1
+fi
+
+mkdir -p "$GIT_DIR" 2>/dev/null || true
+if [ ! -d "$GIT_DIR" ]; then
+    err "Не удалось создать папку git-репозитория: $GIT_DIR"
+    exit 1
+fi
+
+# ---------- Нормализация путей (убираем trailing slash) ----------
+PROJECT_DIR="${PROJECT_DIR%/}"
+GIT_DIR="${GIT_DIR%/}"
+
+# ---------- Критические паттерны блокировки (медицинские данные) ----------
+BLOCKED_PATTERNS=(
+    "\.env$"
+    "\.env\.local$"
+    "\.env\..*\.local$"
+    ".*\.db$"
+    ".*\.db-wal$"
+    ".*\.db-shm$"
+    ".*\.sqlite$"
+    ".*\.sqlite3$"
+    "^data/.*"
+    "^backups/.*"
+    "@eaDir/.*"
+    "Thumbs\.db$"
+    ".*\.bak\..*"
+    ".*@SynoEAStream$"
+    ".*\.pem$"
+    ".*\.key$"
+    "id_rsa.*"
+    ".*credentials.*"
+    "\.DS_Store$"
+    "desktop\.ini$"
+)
+
+# Служебные папки, которые не сравниваем и не копируем
+EXCLUDE_FIND_ARGS=(
+    -not -path "*/.git/*"
+    -not -path "*/__pycache__/*"
+    -not -path "*/.venv/*"
+    -not -path "*/venv/*"
+    -not -path "*/node_modules/*"
+    -not -path "*/@eaDir/*"
+    -not -path "*/data/*"
+    -not -path "*/backups/*"
+    -not -name "*.db"
+    -not -name "*.db-wal"
+    -not -name "*.db-shm"
+    -not -name ".env"
+    -not -name ".env.*"
+    -not -name "Thumbs.db"
+    -not -name ".DS_Store"
+    -not -name "desktop.ini"
+)
+
+# ---------- Функция: проверка, попадает ли относительный путь под блокировку ----------
+is_blocked() {
+    local rel_path="$1"
+    for pattern in "${BLOCKED_PATTERNS[@]}"; do
+        if [[ "$rel_path" =~ $pattern ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ---------- Функция: получение размера файла (кроссплатформенно) ----------
+file_size() {
+    local f="$1"
+    if stat -c%s "$f" 2>/dev/null; then
+        :
+    elif stat -f%z "$f" 2>/dev/null; then
+        :
+    else
+        wc -c < "$f" 2>/dev/null | tr -d ' '
+    fi
+}
+
+# ---------- Инициализация git-репозитория, если его ещё нет ----------
+title "🔧 Проверка git-репозитория"
+
+if ! git -C "$GIT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    warn "Папка $GIT_DIR не является git-репозиторием"
+    info "Инициализирую новый репозиторий..."
+    (
+        cd "$GIT_DIR" || exit 1
+        git init -b "$GITHUB_BRANCH"
+        git remote add origin "$GITHUB_URL"
+    ) || { err "Не удалось инициализировать репозиторий"; exit 1; }
+    ok "Репозиторий инициализирован"
+else
+    ok "Git-репозиторий найден"
+fi
+
+# Проверка remote
+CURRENT_REMOTE=$(git -C "$GIT_DIR" remote get-url origin 2>/dev/null || echo "")
+if [ -z "$CURRENT_REMOTE" ]; then
+    git -C "$GIT_DIR" remote add origin "$GITHUB_URL" 2>/dev/null || \
+    git -C "$GIT_DIR" remote set-url origin "$GITHUB_URL"
+    ok "Remote origin добавлен"
+elif [ "$CURRENT_REMOTE" != "$GITHUB_URL" ]; then
+    warn "Remote origin указывает на другой URL: $CURRENT_REMOTE"
+    read -p "Обновить на ${GITHUB_URL}? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        git -C "$GIT_DIR" remote set-url origin "$GITHUB_URL"
+        ok "Remote обновлён"
+    fi
+fi
+
+# ---------- Гарантируем наличие .gitignore в GIT_DIR ----------
+if [ ! -f "$GIT_DIR/.gitignore" ]; then
+    title "🔒 Создание .gitignore в git-репозитории"
+    cat > "$GIT_DIR/.gitignore" <<'EOF'
+# Медицинские данные (НИКОГДА не коммитить)
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+backups/
+@eaDir/
+*.pem
+*.key
+id_rsa*
+
+# Служебные
+__pycache__/
+.venv/
+venv/
+node_modules/
+*.pyc
+.DS_Store
+Thumbs.db
+desktop.ini
+*.bak
+EOF
+    ok ".gitignore создан"
+fi
+
+# ---------- Сканирование различий между PROJECT_DIR и GIT_DIR ----------
+title "🔍 Анализ различий между папками"
+
+CHANGED_FILES=()
+CHANGED_TYPES=()   # "new", "modified", "deleted"
+
+info "Сканирую файлы в $PROJECT_DIR..."
+
+# 1. Файлы в PROJECT_DIR — проверяем, новые они или изменённые
+while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    
+    # Относительный путь
+    rel_path="${file#$PROJECT_DIR/}"
+    [ -z "$rel_path" ] && continue
+    
+    # Пропускаем сам скрипт деплоя
+    [ "$rel_path" = "deploy.sh" ] && continue
+    
+    # Пропускаем заблокированные
+    if is_blocked "$rel_path"; then
+        continue
+    fi
+    
+    target_file="$GIT_DIR/$rel_path"
+    
+    if [ ! -f "$target_file" ]; then
+        CHANGED_FILES+=("$rel_path")
+        CHANGED_TYPES+=("new")
+    elif ! cmp -s "$file" "$target_file"; then
+        CHANGED_FILES+=("$rel_path")
+        CHANGED_TYPES+=("modified")
+    fi
+done < <(find "$PROJECT_DIR" -type f "${EXCLUDE_FIND_ARGS[@]}" 2>/dev/null)
+
+# 2. Файлы только в GIT_DIR (удалённые в PROJECT_DIR) — опционально
+while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    rel_path="${file#$GIT_DIR/}"
+    [ -z "$rel_path" ] && continue
+    
+    # Пропускаем .git и служебное
+    [[ "$rel_path" == .git/* ]] && continue
+    [ "$rel_path" = ".gitignore" ] && continue
+    
+    if is_blocked "$rel_path"; then
+        continue
+    fi
+    
+    source_file="$PROJECT_DIR/$rel_path"
+    if [ ! -f "$source_file" ]; then
+        CHANGED_FILES+=("$rel_path")
+        CHANGED_TYPES+=("deleted")
+    fi
+done < <(find "$GIT_DIR" -type f \
+    -not -path "*/.git/*" \
+    -not -path "*/__pycache__/*" \
+    -not -path "*/.venv/*" \
+    -not -path "*/node_modules/*" \
+    2>/dev/null)
+
+if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
+    echo
+    ok "Нет изменений для отправки."
+    info "Файлы в PROJECT_DIR и GIT_DIR идентичны."
+    exit 0
+fi
+
+# ---------- SECURITY CHECK: проверка на опасные файлы ----------
+DANGEROUS=()
+for rel_path in "${CHANGED_FILES[@]}"; do
+    if is_blocked "$rel_path"; then
+        DANGEROUS+=("$rel_path")
+    fi
+done
+
+if [ ${#DANGEROUS[@]} -gt 0 ]; then
+    echo
+    echo -e "${BOLD}${RED}╔════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${RED}║   🚨 ОБНАРУЖЕНЫ ОПАСНЫЕ ФАЙЛЫ (медицинские данные) 🚨   ║${NC}"
+    echo -e "${BOLD}${RED}╚════════════════════════════════════════════════════════╝${NC}"
+    echo
+    echo -e "${RED}Следующие файлы ЗАБЛОКИРОВАНЫ к отправке:${NC}"
+    for d in "${DANGEROUS[@]}"; do
+        echo -e "  ${RED}🚫 $d${NC}"
+    done
+    echo
+    err "Деплой прерван для защиты медицинских данных."
+    exit 1
+fi
+
+# ---------- Показ изменений ----------
+echo
+echo -e "${YELLOW}📋 Обнаруженные различия:${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+i=1
+for idx in "${!CHANGED_FILES[@]}"; do
+    rel_path="${CHANGED_FILES[$idx]}"
+    type="${CHANGED_TYPES[$idx]}"
+    
+    case "$type" in
+        new)      marker="${GREEN}[новый]${NC}" ;;
+        modified) marker="${YELLOW}[изменён]${NC}" ;;
+        deleted)  marker="${RED}[удалён]${NC}" ;;
+        *)        marker="${BLUE}[файл]${NC}" ;;
+    esac
+    
+    printf "  ${BOLD}%2d)${NC} %-14b %s\n" "$i" "$marker" "$rel_path"
+    ((i++))
+done
+
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  Всего файлов: ${BOLD}${#CHANGED_FILES[@]}${NC}"
+
+# ---------- Интерактивный выбор ----------
+echo
+echo -e "${YELLOW}❓ Какие файлы перенести в git и отправить на GitHub?${NC}"
+echo -e "  ${GREEN}A${NC} — все файлы (All)"
+echo -e "  ${GREEN}1 3 5${NC} — номера через пробел"
+echo -e "  ${GREEN}S${NC} — отменить (Skip)"
+echo -e "  ${GREEN}Q${NC} — выйти (Quit)"
+echo
+echo -ne "${BLUE}➜ ${NC}${BOLD}Ваш выбор:${NC} "
+read -r CHOICE
+
+SELECTED_INDICES=()
+case "$CHOICE" in
+    A|a|All|ALL|all)
+        for idx in "${!CHANGED_FILES[@]}"; do
+            SELECTED_INDICES+=("$idx")
+        done
+        ok "Выбраны все файлы: ${#SELECTED_INDICES[@]}"
+        ;;
+    S|s|Skip|SKIP|skip)
+        warn "Отправка отменена."
+        exit 0
+        ;;
+    Q|q|Quit|QUIT|quit)
+        info "Выход."
+        exit 0
+        ;;
+    *)
+        if [[ "$CHOICE" =~ ^[0-9[:space:]]+$ ]]; then
+            IFS=' ' read -ra SELECTED_NUMBERS <<< "$CHOICE"
+            INVALID=0
+            for num in "${SELECTED_NUMBERS[@]}"; do
+                if [ "$num" -ge 1 ] && [ "$num" -le "${#CHANGED_FILES[@]}" ]; then
+                    SELECTED_INDICES+=("$((num-1))")
+                else
+                    err "Неверный номер: $num (доступно 1..${#CHANGED_FILES[@]})"
+                    INVALID=1
+                fi
+            done
+            [ "$INVALID" -eq 1 ] && { err "Отправка отменена."; exit 1; }
+            ok "Выбрано файлов: ${#SELECTED_INDICES[@]}"
+        else
+            err "Неверный ввод. Отправка отменена."
+            exit 1
+        fi
+        ;;
+esac
+
+# ---------- Подтверждение ----------
+echo
+echo -e "${BOLD}📦 Будет перенесено в git и отправлено на GitHub:${NC}"
+
+for idx in "${SELECTED_INDICES[@]}"; do
+    rel_path="${CHANGED_FILES[$idx]}"
+    type="${CHANGED_TYPES[$idx]}"
+    
+    case "$type" in
+        new)      icon="➕" ;;
+        modified) icon="📝" ;;
+        deleted)  icon="🗑️" ;;
+        *)        icon="📄" ;;
+    esac
+    
+    source_file="$PROJECT_DIR/$rel_path"
+    if [ -f "$source_file" ]; then
+        size=$(file_size "$source_file" 2>/dev/null || echo "?")
+        if [ "$size" != "?" ] && [ -n "$size" ]; then
+            size_kb=$((size / 1024))
+            size_str="(${size_kb} KB)"
+        else
+            size_str=""
+        fi
+    else
+        size_str=""
+    fi
+    
+    echo -e "  $icon ${CYAN}${rel_path}${NC} ${size_str}"
+    
+    if [ -f "$source_file" ] && [ "$size" != "?" ] && [ -n "$size" ] && [ "$size" -gt 1048576 ]; then
+        warn "    ⚠️  Файл больше 1 MB — проверьте, не содержит ли он мед. данные"
+    fi
+done
+
+echo
+echo -ne "${YELLOW}❓ Продолжить? (y/n):${NC} "
+read -r CONFIRM
+if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+    warn "Отправка отменена."
+    exit 0
+fi
+
+# ---------- Копирование файлов в GIT_DIR ----------
+title "📋 Копирование файлов в git-репозиторий"
+
+for idx in "${SELECTED_INDICES[@]}"; do
+    rel_path="${CHANGED_FILES[$idx]}"
+    type="${CHANGED_TYPES[$idx]}"
+    
+    target_file="$GIT_DIR/$rel_path"
+    source_file="$PROJECT_DIR/$rel_path"
+    
+    if [ "$type" = "deleted" ]; then
+        if [ -f "$target_file" ]; then
+            rm -f "$target_file" && ok "Удалён: $rel_path" || err "Не удалось удалить: $rel_path"
+        fi
+    else
+        target_dir=$(dirname "$target_file")
+        mkdir -p "$target_dir"
+        if cp -f "$source_file" "$target_file"; then
+            ok "Скопирован: $rel_path"
+        else
+            err "Не удалось скопировать: $rel_path"
+            exit 1
+        fi
+    fi
+done
+
+# ---------- Выбор типа коммита ----------
+title "🏷️  Тип изменения (Conventional Commits)"
+echo -e "  ${GREEN}1${NC}) ${BOLD}feat${NC}     — новая функция"
+echo -e "  ${GREEN}2${NC}) ${BOLD}fix${NC}      — исправление ошибки"
+echo -e "  ${GREEN}3${NC}) ${BOLD}docs${NC}     — документация"
+echo -e "  ${GREEN}4${NC}) ${BOLD}style${NC}    — оформление, UI, CSS"
+echo -e "  ${GREEN}5${NC}) ${BOLD}refactor${NC} — рефакторинг"
+echo -e "  ${GREEN}6${NC}) ${BOLD}chore${NC}    — служебные изменения"
+echo -e "  ${GREEN}7${NC}) ${BOLD}security${NC} — безопасность"
+echo -e "  ${GREEN}8${NC}) ${BOLD}backup${NC}   — бэкапы"
+echo -e "  ${GREEN}9${NC}) ${BOLD}custom${NC}   — своё сообщение"
+echo
+echo -ne "${BLUE}➜ ${NC}${BOLD}Выберите тип [1-9, по умолчанию 6]:${NC} "
+read -r COMMIT_TYPE
+COMMIT_TYPE=${COMMIT_TYPE:-6}
+
+case "$COMMIT_TYPE" in
+    1) PREFIX="feat" ;;
+    2) PREFIX="fix" ;;
+    3) PREFIX="docs" ;;
+    4) PREFIX="style" ;;
+    5) PREFIX="refactor" ;;
+    6) PREFIX="chore" ;;
+    7) PREFIX="security" ;;
+    8) PREFIX="backup" ;;
+    9) PREFIX="" ;;
+    *) PREFIX="chore" ;;
+esac
+
+# ---------- Сообщение коммита ----------
+FIRST_FILE="${CHANGED_FILES[${SELECTED_INDICES[0]}]}"
+if [ ${#SELECTED_INDICES[@]} -eq 1 ]; then
+    DEFAULT_MSG="update $FIRST_FILE"
+else
+    DEFAULT_MSG="update ${#SELECTED_INDICES[@]} files (incl. $FIRST_FILE)"
+fi
+
+if [ -z "$PREFIX" ]; then
+    echo -ne "${BLUE}➜ ${NC}${BOLD}Введите сообщение коммита:${NC} "
+    read -r COMMIT_MSG
+    if [ -z "$COMMIT_MSG" ]; then
+        err "Пустое сообщение. Отправка отменена."
+        exit 1
+    fi
+else
+    echo -ne "${BLUE}➜ ${NC}${BOLD}Описание [${DEFAULT_MSG}]:${NC} "
+    read -r CUSTOM_DESC
+    CUSTOM_DESC=${CUSTOM_DESC:-$DEFAULT_MSG}
+    COMMIT_MSG="${PREFIX}: ${CUSTOM_DESC}"
+fi
+
+# ---------- Git add, commit, push ----------
+title "📤 Git операции в $GIT_DIR"
+
+cd "$GIT_DIR" || { err "Не удалось перейти в $GIT_DIR"; exit 1; }
+
+# Добавляем выбранные файлы
+for idx in "${SELECTED_INDICES[@]}"; do
+    rel_path="${CHANGED_FILES[$idx]}"
+    if git add -- "$rel_path" 2>/dev/null; then
+        ok "git add: $rel_path"
+    else
+        err "Не удалось добавить: $rel_path"
+        exit 1
+    fi
+done
+
+# Проверяем, есть ли что коммитить
+if git diff --cached --quiet 2>/dev/null; then
+    warn "Нет изменений для коммита (файлы идентичны HEAD)"
+    exit 0
+fi
+
+echo
+echo -e "  Сообщение: ${CYAN}${COMMIT_MSG}${NC}"
+
+if git commit -m "$COMMIT_MSG"; then
+    ok "Коммит создан"
+else
+    err "Ошибка при создании коммита"
+    warn "Возможно не настроены user.name и user.email:"
+    echo -e "  ${CYAN}git config --global user.name \"Your Name\"${NC}"
+    echo -e "  ${CYAN}git config --global user.email \"your@email.com\"${NC}"
+    exit 1
+fi
+
+# Синхронизация с remote
+title "📡 Синхронизация с GitHub"
+if git fetch origin "$GITHUB_BRANCH" 2>/dev/null; then
+    ok "Fetch выполнен"
+    # Пробуем rebase, если есть расхождения
+    if ! git diff --quiet "origin/$GITHUB_BRANCH" 2>/dev/null; then
+        info "Обнаружены расхождения с remote, выполняю rebase..."
+        if git pull --rebase origin "$GITHUB_BRANCH" 2>&1; then
+            ok "Rebase успешен"
+        else
+            warn "Rebase не удался — возможно нужен ручной merge"
+        fi
+    fi
+fi
+
+title "🚀 Отправка на GitHub"
+if git push origin "$GITHUB_BRANCH" 2>&1; then
+    echo
+    echo -e "${BOLD}${GREEN}╔════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${GREEN}║   ✅ УСПЕШНО ОТПРАВЛЕНО НА GITHUB!                 ║${NC}"
+    echo -e "${BOLD}${GREEN}╚════════════════════════════════════════════════════╝${NC}"
+    echo
+    echo -e "  📦 Отправлено файлов: ${BOLD}${#SELECTED_INDICES[@]}${NC}"
+    echo -e "  📝 Коммит: ${CYAN}${COMMIT_MSG}${NC}"
+    echo
+    echo -e "  🔗 ${BOLD}Ссылки:${NC}"
+    echo -e "     • Репозиторий: ${CYAN}${GITHUB_URL}${NC}"
+    echo -e "     • Коммиты:     ${CYAN}${GITHUB_URL}/commits/${GITHUB_BRANCH}${NC}"
+    echo
+else
+    echo
+    err "Ошибка при отправке на GitHub"
+    echo
+    echo -e "${YELLOW}💡 Попробуйте вручную:${NC}"
+    echo -e "  ${CYAN}cd \"$GIT_DIR\" && git push origin ${GITHUB_BRANCH}${NC}"
+    exit 1
+fi

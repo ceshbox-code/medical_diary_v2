@@ -358,11 +358,24 @@ def api_medication_create():
             [(med_id, t) for t in times],
         )
         if marking:
+            mdlp_status = "not_checked"
+            mdlp_data = None
+            try:
+                from mdlp_client import MDLPClient
+                entry = MDLPClient().find_public_sgtin(marking.sgtin)
+                mdlp_status = "found" if entry else "not_found"
+                mdlp_data = entry
+            except Exception:
+                # Ошибка внешней системы не должна отменять локальное сохранение лекарства.
+                mdlp_status = "unavailable"
+
             db.execute(
-                "INSERT INTO medication_packages (medication_id, user_id, gtin, serial_number, sgtin, marking_code, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'chestny_znak')",
+                "INSERT INTO medication_packages "
+                "(medication_id, user_id, gtin, serial_number, sgtin, marking_code, status, checked_at, data_json, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, 'chestny_znak')",
                 (med_id, session["user_id"], marking.gtin, marking.serial_number,
-                 marking.sgtin, marking.raw),
+                 marking.sgtin, marking.raw, mdlp_status,
+                 json.dumps(mdlp_data, ensure_ascii=False) if mdlp_data is not None else None),
             )
         db.commit()
     except sqlite3.IntegrityError:

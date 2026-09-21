@@ -291,7 +291,8 @@ def api_medication_scan():
         "raw": parsed.raw,
         "already_registered": bool(existing),
     })
-\n@reminders_bp.get("/api/medications")
+
+@reminders_bp.get("/api/medications")
 @login_required
 def api_medications_list():
     db = get_db()
@@ -319,14 +320,6 @@ def api_medication_create():
         times = _parse_times(data.get("times"))
     except ValueError as e:
         return jsonify(error=str(e)), 400
-
-    db = get_db()
-    count = db.execute(
-        "SELECT COUNT(*) AS c FROM medications WHERE user_id = ? AND deleted_at IS NULL",
-        (session["user_id"],),
-    ).fetchone()["c"]
-    if count >= MAX_MEDICATIONS:
-        return jsonify(error=f"Достигнут предел: {MAX_MEDICATIONS} лекарств"), 400
 
     try:
         marking = _parse_marking_payload(data.get("marking"))

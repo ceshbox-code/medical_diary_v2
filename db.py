@@ -230,6 +230,28 @@ CREATE TABLE IF NOT EXISTS medications (
 
 CREATE INDEX IF NOT EXISTS idx_medications_user ON medications(user_id, deleted_at);
 
+-- Конкретная промаркированная упаковка лекарства (Data Matrix / Честный знак).
+-- Одна пользовательская запись лекарства может иметь несколько упаковок.
+CREATE TABLE IF NOT EXISTS medication_packages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  medication_id INTEGER NOT NULL REFERENCES medications(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  gtin TEXT NOT NULL,
+  serial_number TEXT NOT NULL,
+  sgtin TEXT NOT NULL,
+  marking_code TEXT NOT NULL,
+  status TEXT,
+  checked_at TEXT,
+  data_json TEXT,
+  source TEXT NOT NULL DEFAULT 'chestny_znak',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, sgtin)
+);
+
+CREATE INDEX IF NOT EXISTS idx_medication_packages_medication ON medication_packages(medication_id);
+CREATE INDEX IF NOT EXISTS idx_medication_packages_gtin ON medication_packages(gtin);
+
 -- Времена суток приёма (HH:MM). Одна строка на каждое время.
 CREATE TABLE IF NOT EXISTS medication_schedule (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

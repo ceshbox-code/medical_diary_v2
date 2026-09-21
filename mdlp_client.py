@@ -12,6 +12,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,8 +39,9 @@ class MDLPConfig:
             raise MDLPError("MDLP_MODE должен быть sandbox или production", "config")
         default_url = "https://api.sb.mdlp.crpt.ru" if mode == "sandbox" else "https://api.mdlp.crpt.ru"
         base_url = os.getenv("MDLP_BASE_URL", default_url).rstrip("/")
-        if not (base_url.startswith("https://api.sb.mdlp.crpt.ru") if mode == "sandbox"
-                else base_url.startswith("https://api.mdlp.crpt.ru")):
+        expected_host = "api.sb.mdlp.crpt.ru" if mode == "sandbox" else "api.mdlp.crpt.ru"
+        parsed = urlparse(base_url)
+        if parsed.scheme != "https" or parsed.hostname != expected_host or parsed.path not in ("", "/"):
             raise MDLPError("MDLP_BASE_URL не соответствует MDLP_MODE", "config")
         return cls(
             enabled=os.getenv("MDLP_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},

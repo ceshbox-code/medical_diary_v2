@@ -245,6 +245,16 @@ def _med_to_json(row, times):
     }
 
 
+def _parse_marking_payload(value):
+    """Валидирует необязательную привязку промаркированной упаковки."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("Маркировка: ожидается объект")
+    from mdlp_parser import parse_marking_code
+    return parse_marking_code(value.get("raw", ""))
+
+
 def _get_med(db, med_id):
     return db.execute(
         "SELECT * FROM medications WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
@@ -252,7 +262,36 @@ def _get_med(db, med_id):
     ).fetchone()
 
 
-@reminders_bp.get("/api/medications")
+
+
+@reminders_bp.post("/api/medications/scan")
+@login_required
+def api_medication_scan():
+    """Разбирает код Data Matrix локально. MDLP здесь намеренно не вызывается."""
+    data = _json_body()
+    if data is None:
+        return _bad_request()
+    try:
+        from mdlp_parser import parse_marking_code
+        parsed = parse_marking_code(data.get("code", ""))
+    except ValueError as e:
+        return jsonify(error=str(e), code="INVALID_DATAMATRIX"), 400
+
+    db = get_db()
+    existing = db.execute(
+        "SELECT medication_id FROM medication_packages WHERE user_id = ? AND sgtin = ? LIMIT 1",
+        (session["user_id"], parsed.sgtin),
+    ).fetchone()
+    audit("scan_medication_marking", "medication_packages", existing["medication_id"] if existing else None,
+          {"gtin": parsed.gtin, "has_existing": bool(existing)})
+    return jsonify(ok=True, source="chestny_znak", marking={
+        "gtin": parsed.gtin,
+        "serial_number": parsed.serial_number,
+        "sgtin": parsed.sgtin,
+        "raw": parsed.raw,
+        "already_registered": bool(existing),
+    })
+\n@reminders_bp.get("/api/medications")
 @login_required
 def api_medications_list():
     db = get_db()
@@ -289,21 +328,45 @@ def api_medication_create():
     if count >= MAX_MEDICATIONS:
         return jsonify(error=f"Достигнут предел: {MAX_MEDICATIONS} лекарств"), 400
 
-    cur = db.execute(
-        "INSERT INTO medications (user_id, name, dose_value, dose_unit, instructions, start_date, end_date, is_active, comment, days_mask, source) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')",
-        (session["user_id"], fields["name"], fields["dose_value"], fields["dose_unit"],
-         fields["instructions"], fields["start_date"], fields["end_date"], fields["is_active"],
-         fields["comment"], fields["days_mask"]),
-    )
-    med_id = cur.lastrowid
-    db.executemany(
-        "INSERT INTO medication_schedule (medication_id, time_of_day) VALUES (?, ?)",
-        [(med_id, t) for t in times],
-    )
-    db.commit()
+    try:
+        marking = _parse_marking_payload(data.get("marking"))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
 
-    audit("create_medication", "medications", med_id, {"times": len(times)})
+    db = get_db()
+    count = db.execute(
+        "SELECT COUNT(*) AS c FROM medications WHERE user_id = ? AND deleted_at IS NULL",
+        (session["user_id"],),
+    ).fetchone()["c"]
+    if count >= MAX_MEDICATIONS:
+        return jsonify(error=f"Достигнут предел: {MAX_MEDICATIONS} лекарств"), 400
+
+    try:
+        cur = db.execute(
+            "INSERT INTO medications (user_id, name, dose_value, dose_unit, instructions, start_date, end_date, is_active, comment, days_mask, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session["user_id"], fields["name"], fields["dose_value"], fields["dose_unit"],
+             fields["instructions"], fields["start_date"], fields["end_date"], fields["is_active"],
+             fields["comment"], fields["days_mask"], "chestny_znak" if marking else "manual"),
+        )
+        med_id = cur.lastrowid
+        db.executemany(
+            "INSERT INTO medication_schedule (medication_id, time_of_day) VALUES (?, ?)",
+            [(med_id, t) for t in times],
+        )
+        if marking:
+            db.execute(
+                "INSERT INTO medication_packages (medication_id, user_id, gtin, serial_number, sgtin, marking_code, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'chestny_znak')",
+                (med_id, session["user_id"], marking.gtin, marking.serial_number,
+                 marking.sgtin, marking.raw),
+            )
+        db.commit()
+    except sqlite3.IntegrityError:
+        db.rollback()
+        return jsonify(error="Эта упаковка «Честный знак» уже привязана к вашему лекарству"), 409
+
+    audit("create_medication", "medications", med_id, {"times": len(times), "source": "chestny_znak" if marking else "manual"})
     result = {"ok": True, "id": med_id}
     store_idempotent_response(session["user_id"], "api_medication_create", idem_key, "medications", med_id, result)
     return jsonify(result)

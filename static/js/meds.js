@@ -646,7 +646,15 @@
         '✓ Код распознан · GTIN ' + out.marking.gtin +
         ' · серия ' + out.marking.serial_number +
         (out.marking.already_registered ? ' · уже зарегистрирован' : '');
-      $('med-scan-status').textContent = 'Код Честного знака привязан к новой записи.';
+      if (out.mdlp && out.mdlp.status === 'found') {
+        $('med-scan-status').textContent = 'MDLP: упаковка найдена в общедоступном реестре.';
+      } else if (out.mdlp && out.mdlp.status === 'not_found') {
+        $('med-scan-status').textContent = 'MDLP: упаковка не найдена в общедоступном реестре.';
+      } else if (out.mdlp && out.mdlp.status !== 'disabled') {
+        $('med-scan-status').textContent = 'Код распознан; MDLP сейчас недоступен, можно продолжить вручную.';
+      } else {
+        $('med-scan-status').textContent = 'Код Честного знака распознан.';
+      }
       if (out.marking.already_registered) {
         setMsg('med-scan-msg', 'Эта упаковка уже есть в дневнике. Создайте другую запись или используйте существующую.', false);
         return;

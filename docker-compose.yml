@@ -1,19 +1,39 @@
 services:
-  medical-diary:
+  app:
+    container_name: ${CONTAINER_NAME:-medical-diary-app}
     build: .
-    container_name: medical-diary_v2
+    environment:
+      - TZ=${TZ:-Europe/Moscow}
     restart: unless-stopped
     env_file:
       - .env
+    ports:
+      - "${HTTP_PORT:-8000}:8000"
+    
     volumes:
       - ./data:/data
       - ./backups:/backups
-    ports:
-      - "127.0.0.1:8000:8000"
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      - ./static:/app/static:ro
+      - ./templates:/app/templates:ro
+      - ./app.py:/app/app.py:ro
+      - ./validators.py:/app/validators.py:ro
+      - ./ai_utils.py:/app/ai_utils.py:ro
+      - ./db.py:/app/db.py:ro
+      - ./security.py:/app/security.py:ro
+      - ./reminders.py:/app/reminders.py:ro
+
+      - ./assessments.py:/app/assessments.py:ro
+      - ./pdf_export.py:/app/pdf_export.py:ro
+      - ./backup.py:/app/backup.py:ro
+      - ./reset_admin_password.py:/app/reset_admin_password.py:ro
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\""
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

@@ -26,6 +26,7 @@ CSRF-защита и заголовки безопасности действу�
 """
 
 import os
+import json
 import sqlite3
 from datetime import datetime, timedelta, date
 
@@ -361,11 +362,11 @@ def api_medication_create():
             mdlp_status = "not_checked"
             mdlp_data = None
             try:
-                from mdlp_client import MDLPClient
+                from mdlp_client import MDLPClient, MDLPError
                 entry = MDLPClient().find_public_sgtin(marking.sgtin)
                 mdlp_status = "found" if entry else "not_found"
                 mdlp_data = entry
-            except Exception:
+            except MDLPError:
                 # Ошибка внешней системы не должна отменять локальное сохранение лекарства.
                 mdlp_status = "unavailable"
 

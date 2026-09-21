@@ -282,15 +282,25 @@ def api_medication_scan():
         "SELECT medication_id FROM medication_packages WHERE user_id = ? AND sgtin = ? LIMIT 1",
         (session["user_id"], parsed.sgtin),
     ).fetchone()
+
+    mdlp = None
+    try:
+        from mdlp_client import MDLPClient, MDLPError
+        entry = MDLPClient().find_public_sgtin(parsed.sgtin)
+        mdlp = {"status": "found" if entry else "not_found", "entry": entry}
+    except MDLPError as e:
+        # Распознавание Data Matrix не теряем, даже если MDLP временно недоступен.
+        mdlp = {"status": e.kind, "error": str(e)}
+
     audit("scan_medication_marking", "medication_packages", existing["medication_id"] if existing else None,
-          {"gtin": parsed.gtin, "has_existing": bool(existing)})
+          {"gtin": parsed.gtin, "has_existing": bool(existing), "mdlp_status": mdlp["status"]})
     return jsonify(ok=True, source="chestny_znak", marking={
         "gtin": parsed.gtin,
         "serial_number": parsed.serial_number,
         "sgtin": parsed.sgtin,
         "raw": parsed.raw,
         "already_registered": bool(existing),
-    })
+    }, mdlp=mdlp)
 
 @reminders_bp.get("/api/medications")
 @login_required

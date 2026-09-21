@@ -22,6 +22,7 @@ services:
       - ./security.py:/app/security.py:ro
       - ./reminders.py:/app/reminders.py:ro
       - ./mdlp_parser.py:/app/mdlp_parser.py:ro
+      - ./mdlp_client.py:/app/mdlp_client.py:ro
 
       - ./assessments.py:/app/assessments.py:ro
       - ./pdf_export.py:/app/pdf_export.py:ro

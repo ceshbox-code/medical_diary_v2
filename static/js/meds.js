@@ -31,7 +31,7 @@
     temperature: 'Измерить температуру', food: 'Записать приём пищи', custom: ''
   };
 
-  var state = { meds: [], reminders: [], schedule: null };
+  var state = { meds: [], reminders: [], schedule: null, marking: null };
   var loadSeq = 0;
 
   /* ------------------------------------------------------------ утилиты */
@@ -469,8 +469,11 @@
   var medCtx = null;
 
   function openMedModal(med) {
-    medCtx = { id: med ? med.id : null, idem: med ? null : 'med-' + uuid() };
+    medCtx = { id: med ? med.id : null, idem: med ? null : 'med-' + uuid(), marking: null };
     $('med-modal-title').textContent = med ? 'Изменить лекарство' : 'Новое лекарство';
+    $('med-scan-status').textContent = '';
+    $('med-marking-preview').hidden = true;
+    $('med-marking-preview').textContent = '';
     $('med-name').value = med ? med.name : '';
     $('med-dose').value = med && med.dose_value !== null ? fmtNum(med.dose_value) : '';
     var unitSel = $('med-unit');
@@ -511,6 +514,7 @@
       comment: $('med-comment').value.trim(),
       is_active: $('med-active').checked
     };
+    if (medCtx.marking) { payload.marking = medCtx.marking; }
     var btn = $('med-save');
     btn.disabled = true;
     try {
@@ -604,7 +608,98 @@
     }
   }
 
-  /* -------------------------------------------------------------- история */
+
+  /* -------------------------------------------- сканирование Data Matrix */
+
+  var scanStream = null;
+  var scanTimer = null;
+  var scanBusy = false;
+
+  function stopMedScanner() {
+    if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+    if (scanStream) {
+      scanStream.getTracks().forEach(function (track) { track.stop(); });
+      scanStream = null;
+    }
+    var video = $('med-scan-video');
+    if (video) { video.srcObject = null; }
+  }
+
+  function closeMedScanner() {
+    stopMedScanner();
+    $('med-scan-modal').hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  async function submitScannedCode(code) {
+    code = String(code || '').trim();
+    if (!code) { setMsg('med-scan-msg', 'Код не указан', false); return; }
+    if (code.length > 4096) { setMsg('med-scan-msg', 'Код слишком длинный', false); return; }
+    if (scanBusy) { return; }
+    scanBusy = true;
+    setMsg('med-scan-msg', 'Проверяю код…', true);
+    try {
+      var out = await api('POST', '/api/medications/scan', { code: code });
+      medCtx.marking = { raw: out.marking.raw };
+      $('med-marking-preview').hidden = false;
+      $('med-marking-preview').textContent =
+        '✓ Код распознан · GTIN ' + out.marking.gtin +
+        ' · серия ' + out.marking.serial_number +
+        (out.marking.already_registered ? ' · уже зарегистрирован' : '');
+      $('med-scan-status').textContent = 'Код Честного знака привязан к новой записи.';
+      if (out.marking.already_registered) {
+        setMsg('med-scan-msg', 'Эта упаковка уже есть в дневнике. Создайте другую запись или используйте существующую.', false);
+        return;
+      }
+      setMsg('med-scan-msg', 'Код принят. Теперь заполните название лекарства и сохраните запись.', true);
+      closeMedScanner();
+    } catch (e) {
+      setMsg('med-scan-msg', e.message, false);
+    } finally {
+      scanBusy = false;
+    }
+  }
+
+  async function openMedScanner() {
+    $('med-scan-modal').hidden = false;
+    document.body.style.overflow = 'hidden';
+    setMsg('med-scan-msg', '', true);
+    $('med-scan-hint').textContent = 'Проверяю поддержку Data Matrix…';
+    if (!('BarcodeDetector' in window)) {
+      $('med-scan-hint').textContent = 'Автоматическое сканирование не поддерживается этим браузером. Вставьте строку Data Matrix ниже.';
+      return;
+    }
+    try {
+      var formats = await BarcodeDetector.getSupportedFormats();
+      if (formats.indexOf('data_matrix') === -1) {
+        $('med-scan-hint').textContent = 'Браузер не поддерживает Data Matrix. Вставьте строку кода вручную.';
+        return;
+      }
+      scanStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      var video = $('med-scan-video');
+      video.srcObject = scanStream;
+      await video.play();
+      $('med-scan-hint').textContent = 'Наведите заднюю камеру на Data Matrix. После распознавания камера будет остановлена.';
+      var detector = new BarcodeDetector({ formats: ['data_matrix'] });
+      scanTimer = setInterval(async function () {
+        if (scanBusy || video.readyState < 2 || !video.videoWidth) { return; }
+        try {
+          var codes = await detector.detect(video);
+          if (codes && codes.length && codes[0].rawValue) {
+            await submitScannedCode(codes[0].rawValue);
+          }
+        } catch (e) { /* следующий кадр */ }
+      }, 250);
+    } catch (e) {
+      stopMedScanner();
+      $('med-scan-hint').textContent = 'Не удалось открыть камеру. Проверьте разрешение камеры и HTTPS. Код можно вставить вручную.';
+      setMsg('med-scan-msg', 'Камера недоступна', false);
+    }
+  }
+\n  /* -------------------------------------------------------------- история */
 
   async function loadHistory() {
     var box = $('meds-history');
@@ -638,6 +733,10 @@
   /* --------------------------------------------------------- привязка событий */
 
   $('med-add-btn').addEventListener('click', function () { openMedModal(null); });
+  $('med-scan-btn').addEventListener('click', openMedScanner);
+  $('med-scan-close').addEventListener('click', closeMedScanner);
+  $('med-scan-manual').addEventListener('click', function () { submitScannedCode($('med-scan-code').value); });
+  $('med-scan-modal').addEventListener('click', function (e) { if (e.target === this) { closeMedScanner(); } });
   $('rem-add-btn').addEventListener('click', function () { openRemModal(null); });
   $('med-time-add').addEventListener('click', function () { addTimeRow(''); });
   $('med-form').addEventListener('submit', saveMed);

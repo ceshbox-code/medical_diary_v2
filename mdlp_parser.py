@@ -80,6 +80,6 @@ def parse_marking_code(raw: str) -> MarkingCode:
     serial = serial_and_tail.split(GS, 1)[0]
     if not serial:
         raise MarkingCodeError("Пустой серийный номер")
-    if len(serial) > 30 or not re.fullmatch(r"[!-~]+", serial):
+    if len(serial) != 13 or not re.fullmatch(r"[!-~]+", serial):
         raise MarkingCodeError("Некорректный серийный номер")
     return MarkingCode(raw=value, gtin=gtin, serial_number=serial)

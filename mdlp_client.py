@@ -85,8 +85,6 @@ class MDLPClient:
                     raise MDLPError("Ответ MDLP превышает допустимый размер", "protocol")
                 return json.loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            raw = exc.read(4096)
-            detail = raw.decode("utf-8", errors="replace")
             if exc.code in (401, 403):
                 kind = "auth"
             elif exc.code == 429:

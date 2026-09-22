@@ -22,9 +22,10 @@ TZ_NAME = os.getenv("TZ", "Europe/Moscow")
 
 
 def _run(source):
-    env_name = "GRLS_EXPORT_URL" if source == "grls" else "MDLP_EXPORT_URL"
-    if not os.getenv(env_name, "").strip():
-        LOG.warning("%s skipped: %s is not configured", source, env_name)
+    # МДЛП имеет официальный /data/latest по умолчанию, поэтому отсутствие
+    # MDLP_EXPORT_URL не должно отключать синхронизацию.
+    if source == "grls" and not os.getenv("GRLS_EXPORT_URL", "").strip():
+        LOG.warning("%s skipped: GRLS_EXPORT_URL is not configured", source)
         return
     try:
         import sys

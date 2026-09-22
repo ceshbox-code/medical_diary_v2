@@ -125,7 +125,10 @@
 <form id="med-form" autocomplete="off" novalidate>
 <div class="med-scan-row"><button type="button" class="med-btn primary" id="med-scan-btn">📷 Сканировать «Честный знак»</button><span id="med-scan-status" class="field-hint"></span></div>
 <div id="med-marking-preview" class="med-marking-preview" hidden></div>
-<label for="med-name">Название</label><input id="med-name" maxlength="100">
+<label for="med-name">Торговое наименование</label><input id="med-name" maxlength="100">
+<div class="row"><div><label for="med-inn">МНН</label><input id="med-inn" maxlength="255"></div><div><label for="med-form">Лекарственная форма</label><input id="med-form" maxlength="255"></div></div>
+<label for="med-manufacturer">Производитель</label><input id="med-manufacturer" maxlength="500">
+<label for="med-reg-number">Номер РУ</label><input id="med-reg-number" maxlength="50">
 <div class="row"><div><label for="med-dose">Дозировка</label><input id="med-dose" type="text" inputmode="decimal" placeholder="Например: 500"></div><div><label for="med-unit">Единица</label><select id="med-unit"></select></div></div>
 <div class="row"><div><label for="med-intake-quantity">Количество за приём</label><input id="med-intake-quantity" type="text" inputmode="decimal" placeholder="Например: 1"></div><div><label for="med-intake-unit">Единица</label><select id="med-intake-unit"></select></div></div>
 <fieldset class="med-package-fields"><legend>Упаковка</legend>

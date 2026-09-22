@@ -49,6 +49,7 @@ from ai_utils import (
 )
 from db import DATABASE, SCHEMA, get_db, close_db, init_db
 from reminders import reminders_bp
+from drug_reference import drug_reference_bp
 from security import (
     audit,
     LOGIN_MAX_ATTEMPTS,
@@ -163,6 +164,7 @@ app.teardown_appcontext(close_db)
 app.before_request(csrf_protect)
 app.after_request(security_headers)
 app.register_blueprint(reminders_bp)
+app.register_blueprint(drug_reference_bp)
 
 
 DEFAULT_SETTINGS = {"glucose": True, "vitals": True, "food": True, "temperature": True, "weight": True, "ranges_default": True, "ai_enabled": True}

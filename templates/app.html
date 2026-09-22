@@ -126,7 +126,12 @@
 <div class="med-scan-row"><button type="button" class="med-btn primary" id="med-scan-btn">📷 Сканировать «Честный знак»</button><span id="med-scan-status" class="field-hint"></span></div>
 <div id="med-marking-preview" class="med-marking-preview" hidden></div>
 <label for="med-name">Название</label><input id="med-name" maxlength="100">
-<div class="row"><div><label for="med-dose">Доза</label><input id="med-dose" type="text" inputmode="decimal" placeholder="Например: 500"></div><div><label for="med-unit">Единица</label><select id="med-unit"></select></div></div>
+<div class="row"><div><label for="med-dose">Дозировка</label><input id="med-dose" type="text" inputmode="decimal" placeholder="Например: 500"></div><div><label for="med-unit">Единица</label><select id="med-unit"></select></div></div>
+<div class="row"><div><label for="med-intake-quantity">Количество за приём</label><input id="med-intake-quantity" type="text" inputmode="decimal" placeholder="Например: 1"></div><div><label for="med-intake-unit">Единица</label><select id="med-intake-unit"></select></div></div>
+<fieldset class="med-package-fields"><legend>Упаковка</legend>
+<div class="row"><div><label for="med-package-quantity">Количество в упаковке</label><input id="med-package-quantity" type="text" inputmode="decimal" placeholder="Например: 30"></div><div><label for="med-package-unit">Единица</label><select id="med-package-unit"></select></div></div>
+<div class="row"><div><label for="med-purchase-date">Дата покупки</label><input id="med-purchase-date" type="date"></div><div><label for="med-expiry-date">Срок годности</label><input id="med-expiry-date" type="date"></div></div>
+</fieldset>
 <label for="med-instr">Как принимать <span class="muted">(необязательно)</span></label><input id="med-instr" maxlength="200" placeholder="Например: после еды">
 <label>Время приёма</label><div id="med-times" class="times-list"></div><button type="button" class="link-btn" id="med-time-add">+ Добавить время</button>
 <label>Дни недели</label><div id="med-days" class="chips"></div>

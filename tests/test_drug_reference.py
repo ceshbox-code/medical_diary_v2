@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 from drug_reference import _normalise_gtin
@@ -30,13 +31,30 @@ class DrugReferenceTests(unittest.TestCase):
                 runner._run("grls")
                 main.assert_not_called()
 
+    def test_runner_calculates_next_grls_run_at_configured_time(self):
+        with patch.object(runner, "TZ_NAME", "Europe/Moscow"), patch.object(
+            runner, "RUN_HOUR", 3
+        ), patch.object(runner, "RUN_MINUTE", 0):
+            now = datetime.fromisoformat("2026-09-22T01:00:00+03:00")
+            self.assertEqual(runner._seconds_until_next_grls(now), 7200)
+
+    def test_runner_calculates_next_day_after_scheduled_time(self):
+        with patch.object(runner, "TZ_NAME", "Europe/Moscow"), patch.object(
+            runner, "RUN_HOUR", 3
+        ), patch.object(runner, "RUN_MINUTE", 0):
+            now = datetime.fromisoformat("2026-09-22T04:00:00+03:00")
+            self.assertEqual(runner._seconds_until_next_grls(now), 23 * 3600)
+
     def test_mdlp_registration_aliases(self):
         headers = ["GTIN", "Номер регистрационного удостоверения", "Описание упаковки"]
         self.assertEqual(_find_column(headers, ["gtin"]), 0)
-        self.assertEqual(_find_column(
-            headers,
-            ["номер ру", "номер регистрационного удостоверения", "registration_number"],
-        ), 1)
+        self.assertEqual(
+            _find_column(
+                headers,
+                ["номер ру", "номер регистрационного удостоверения", "registration_number"],
+            ),
+            1,
+        )
         self.assertEqual(_find_column(headers, ["описание упаковки", "package_desc"]), 2)
 
 

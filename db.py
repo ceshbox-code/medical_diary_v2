@@ -346,6 +346,10 @@ def init_db():
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
     ensure_columns("medications", {
+        "inn": "TEXT",
+        "dosage_form": "TEXT",
+        "manufacturer": "TEXT",
+        "reg_number": "TEXT",
         "intake_quantity": "REAL",
         "intake_unit": "TEXT",
     })

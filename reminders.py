@@ -165,7 +165,8 @@ def _merge_medication(data, cur):
     """Собирает итоговые значения полей лекарства: то, что пришло в data,
     поверх текущих значений cur (при создании cur = None)."""
     base = cur or {
-        "name": None, "dose_value": None, "dose_unit": None,
+        "name": None, "inn": None, "dosage_form": None, "manufacturer": None, "reg_number": None,
+        "dose_value": None, "dose_unit": None,
         "instructions": "", "start_date": None, "end_date": None,
         "is_active": 1, "comment": "", "days_mask": ALL_DAYS_MASK,
         "intake_quantity": None, "intake_unit": None,
@@ -176,6 +177,15 @@ def _merge_medication(data, cur):
         out["name"] = _text(data["name"], 100, "Название", required=True)
     if not out["name"]:
         raise ValueError("Название: заполните поле")
+
+    for key, label, limit in (
+        ("inn", "МНН", 255),
+        ("dosage_form", "Лекарственная форма", 255),
+        ("manufacturer", "Производитель", 500),
+        ("reg_number", "Номер РУ", 50),
+    ):
+        if key in data:
+            out[key] = _text(data[key], limit, label)
 
     if "intake_quantity" in data or "intake_unit" in data:
         raw_q = data.get("intake_quantity", base.get("intake_quantity"))
@@ -296,6 +306,10 @@ def _med_to_json(row, times):
     return {
         "id": row["id"],
         "name": row["name"],
+        "inn": row["inn"],
+        "dosage_form": row["dosage_form"],
+        "manufacturer": row["manufacturer"],
+        "reg_number": row["reg_number"],
         "dose_value": row["dose_value"],
         "dose_unit": row["dose_unit"],
         "instructions": row["instructions"] or "",
@@ -433,9 +447,10 @@ def api_medication_create():
 
     try:
         cur = db.execute(
-            "INSERT INTO medications (user_id, name, dose_value, dose_unit, instructions, start_date, end_date, is_active, comment, days_mask, intake_quantity, intake_unit, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (session["user_id"], fields["name"], fields["dose_value"], fields["dose_unit"],
+            "INSERT INTO medications (user_id, name, inn, dosage_form, manufacturer, reg_number, dose_value, dose_unit, instructions, start_date, end_date, is_active, comment, days_mask, intake_quantity, intake_unit, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session["user_id"], fields["name"], fields["inn"], fields["dosage_form"], fields["manufacturer"], fields["reg_number"],
+             fields["dose_value"], fields["dose_unit"], fields["instructions"],
              fields["instructions"], fields["start_date"], fields["end_date"], fields["is_active"],
              fields["comment"], fields["days_mask"], fields["intake_quantity"], fields["intake_unit"],
              "chestny_znak" if marking else "manual"),
@@ -502,10 +517,11 @@ def api_medication_update(med_id):
             changed.append("times")
 
     db.execute(
-        "UPDATE medications SET name = ?, dose_value = ?, dose_unit = ?, instructions = ?, start_date = ?, "
-        "end_date = ?, is_active = ?, comment = ?, days_mask = ?, intake_quantity = ?, intake_unit = ?, "
-        "updated_at = datetime('now') WHERE id = ?",
-        (fields["name"], fields["dose_value"], fields["dose_unit"], fields["instructions"],
+        "UPDATE medications SET name = ?, inn = ?, dosage_form = ?, manufacturer = ?, reg_number = ?, "
+        "dose_value = ?, dose_unit = ?, instructions = ?, start_date = ?, end_date = ?, is_active = ?, "
+        "comment = ?, days_mask = ?, intake_quantity = ?, intake_unit = ?, updated_at = datetime('now') WHERE id = ?",
+        (fields["name"], fields["inn"], fields["dosage_form"], fields["manufacturer"], fields["reg_number"],
+         fields["dose_value"], fields["dose_unit"], fields["instructions"],
          fields["start_date"], fields["end_date"], fields["is_active"], fields["comment"],
          fields["days_mask"], fields["intake_quantity"], fields["intake_unit"], med_id),
     )

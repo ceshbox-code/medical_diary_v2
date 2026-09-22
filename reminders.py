@@ -451,7 +451,7 @@ def api_medication_create():
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session["user_id"], fields["name"], fields["inn"], fields["dosage_form"], fields["manufacturer"], fields["reg_number"],
              fields["dose_value"], fields["dose_unit"], fields["instructions"],
-             fields["instructions"], fields["start_date"], fields["end_date"], fields["is_active"],
+             fields["start_date"], fields["end_date"], fields["is_active"],
              fields["comment"], fields["days_mask"], fields["intake_quantity"], fields["intake_unit"],
              "chestny_znak" if marking else "manual"),
         )

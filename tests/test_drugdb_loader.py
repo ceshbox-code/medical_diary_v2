@@ -12,7 +12,7 @@ class DrugLoaderUnitTests(unittest.TestCase):
         self.assertEqual(_normalise_gtin("4601234567893"), "04601234567893")
 
     def test_gtin_14_is_preserved(self):
-        self.assertEqual(_normalise_gtin("04601234567893"), "04601234567890")
+        self.assertEqual(_normalise_gtin("04601234567893"), "04601234567893")
 
     def test_bad_gtin_is_rejected(self):
         with self.assertRaises(ValueError):

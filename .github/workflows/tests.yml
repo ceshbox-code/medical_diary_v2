@@ -1,0 +1,18 @@
+name: tests
+
+on:
+  push:
+    branches: ["main", "feature/**"]
+  pull_request:
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m py_compile drug_reference.py reminders.py db.py drugdb/loader.py drugdb/runner.py mdlp_parser.py mdlp_client.py
+      - run: python -m unittest discover -s tests -p "test_*.py"

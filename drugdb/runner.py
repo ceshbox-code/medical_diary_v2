@@ -13,6 +13,10 @@ INTERVAL = int(os.getenv("DRUGDB_UPDATE_INTERVAL_SECONDS", "86400"))
 
 
 def _run(source):
+    env_name = "GRLS_EXPORT_URL" if source == "grls" else "MDLP_EXPORT_URL"
+    if not os.getenv(env_name, "").strip():
+        LOG.warning("%s skipped: %s is not configured", source, env_name)
+        return
     try:
         import sys
         sys.argv = ["loader.py", source]

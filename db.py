@@ -279,6 +279,8 @@ CREATE TABLE IF NOT EXISTS medication_intakes (
   medication_name TEXT NOT NULL,
   dose_value REAL,
   dose_unit TEXT,
+  intake_quantity REAL,
+  intake_unit TEXT,
   scheduled_at TEXT,
   status TEXT NOT NULL CHECK (status IN ('taken', 'skipped')),
   taken_at TEXT,

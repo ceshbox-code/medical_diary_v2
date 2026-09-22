@@ -26,6 +26,10 @@ def _normalise_gtin(value):
         s = "0" + s
     if len(s) != GTIN_LEN:
         raise ValueError("GTIN должен содержать 14 цифр")
+    total = sum(int(d) * (3 if pos % 2 else 1)
+                for pos, d in enumerate(reversed(s[:-1]), start=1))
+    if (10 - total % 10) % 10 != int(s[-1]):
+        raise ValueError("Некорректная контрольная цифра GTIN")
     return s
 
 

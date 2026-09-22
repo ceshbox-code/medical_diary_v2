@@ -111,6 +111,24 @@ def _download(url):
 
 
 def _start_run(conn, source):
+    # Безопасная миграция для уже существующего PostgreSQL volume:
+    # docker-entrypoint-initdb.d выполняется только при первом создании БД.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS drug_gtin_pending (
+            id BIGSERIAL PRIMARY KEY,
+            gtin VARCHAR(14) NOT NULL,
+            reg_number VARCHAR(50) NOT NULL,
+            package_desc VARCHAR(500),
+            first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(gtin, reg_number)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_drug_gtin_pending_reg ON drug_gtin_pending(reg_number)"
+    )
     row = conn.execute(
         "INSERT INTO drug_import_runs(source,status) VALUES(%s,'running') RETURNING id",
         (source,),

@@ -87,6 +87,12 @@ def _normalise_gtin(v):
         digits = "0" + digits
     if len(digits) != 14:
         raise ValueError("GTIN must contain 13 or 14 digits")
+    total = 0
+    for pos, digit in enumerate(reversed(digits[:-1]), start=1):
+        total += int(digit) * (3 if pos % 2 else 1)
+    check = (10 - (total % 10)) % 10
+    if check != int(digits[-1]):
+        raise ValueError("Invalid GTIN check digit")
     return digits
 
 

@@ -168,6 +168,7 @@ def _merge_medication(data, cur):
         "name": None, "dose_value": None, "dose_unit": None,
         "instructions": "", "start_date": None, "end_date": None,
         "is_active": 1, "comment": "", "days_mask": ALL_DAYS_MASK,
+        "intake_quantity": None, "intake_unit": None,
     }
     out = dict(base)
 
@@ -175,6 +176,12 @@ def _merge_medication(data, cur):
         out["name"] = _text(data["name"], 100, "Название", required=True)
     if not out["name"]:
         raise ValueError("Название: заполните поле")
+
+    if "intake_quantity" in data or "intake_unit" in data:
+        raw_q = data.get("intake_quantity", base.get("intake_quantity"))
+        raw_u = data.get("intake_unit", base.get("intake_unit"))
+        q, u = _parse_optional_quantity(raw_q, raw_u, "Количество за приём")
+        out["intake_quantity"], out["intake_unit"] = q, u
 
     if "dose_value" in data or "dose_unit" in data:
         raw_v = data.get("dose_value", base["dose_value"])
@@ -230,6 +237,61 @@ def _load_times(db, med_ids):
     return result
 
 
+def _parse_optional_quantity(value, unit, label):
+    if value is None or str(value).strip() == "":
+        if unit is not None and str(unit).strip():
+            raise ValueError(f"{label}: укажите количество")
+        return None, None
+    quantity = parse_float(value, 0.001, 100000000, label)
+    unit = str(unit or "").strip()
+    if unit not in MED_UNITS:
+        raise ValueError(f"{label}: выберите единицу ({', '.join(MED_UNITS)})")
+    return quantity, unit
+
+
+def _med_stock(db, med_id):
+    packages = db.execute(
+        "SELECT package_quantity, package_unit, purchase_date, expiry_date "
+        "FROM medication_packages WHERE medication_id = ? ORDER BY expiry_date IS NULL, expiry_date, id",
+        (med_id,),
+    ).fetchall()
+    if not packages:
+        return {"package_count": 0, "remaining_quantity": None, "unit": None, "expiry_date": None}
+
+    quantities = [p["package_quantity"] for p in packages if p["package_quantity"] is not None]
+    units = {p["package_unit"] for p in packages if p["package_unit"]}
+    med = db.execute(
+        "SELECT intake_quantity, intake_unit FROM medications WHERE id = ?",
+        (med_id,),
+    ).fetchone()
+    intake_qty = med["intake_quantity"] if med else None
+    intake_unit = med["intake_unit"] if med else None
+
+    if not quantities or len(units) != 1:
+        remaining = None
+        unit = None
+    else:
+        unit = next(iter(units))
+        consumed = 0.0
+        if intake_qty is not None and intake_unit == unit:
+            row = db.execute(
+                "SELECT COALESCE(SUM(intake_quantity), 0) AS total "
+                "FROM medication_intakes WHERE medication_id = ? AND status = 'taken' "
+                "AND deleted_at IS NULL AND intake_unit = ?",
+                (med_id, unit),
+            ).fetchone()
+            consumed = float(row["total"] or 0)
+        remaining = max(0.0, float(sum(quantities)) - consumed)
+
+    expiry_dates = [p["expiry_date"] for p in packages if p["expiry_date"]]
+    return {
+        "package_count": len(packages),
+        "remaining_quantity": remaining,
+        "unit": unit,
+        "expiry_date": min(expiry_dates) if expiry_dates else None,
+    }
+
+
 def _med_to_json(row, times):
     return {
         "id": row["id"],
@@ -243,6 +305,8 @@ def _med_to_json(row, times):
         "comment": row["comment"] or "",
         "days": _mask_to_days(row["days_mask"]),
         "times": times,
+        "intake_quantity": row["intake_quantity"],
+        "intake_unit": row["intake_unit"],
     }
 
 
@@ -320,7 +384,10 @@ def api_medications_list():
         (session["user_id"],),
     ).fetchall()
     times = _load_times(db, [r["id"] for r in rows])
-    return jsonify(medications=[_med_to_json(r, times.get(r["id"], [])) for r in rows])
+    return jsonify(medications=[
+        dict(_med_to_json(r, times.get(r["id"], [])), stock=_med_stock(db, r["id"]))
+        for r in rows
+    ])
 
 
 @reminders_bp.post("/api/medications")
@@ -355,11 +422,12 @@ def api_medication_create():
 
     try:
         cur = db.execute(
-            "INSERT INTO medications (user_id, name, dose_value, dose_unit, instructions, start_date, end_date, is_active, comment, days_mask, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO medications (user_id, name, dose_value, dose_unit, instructions, start_date, end_date, is_active, comment, days_mask, intake_quantity, intake_unit, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session["user_id"], fields["name"], fields["dose_value"], fields["dose_unit"],
              fields["instructions"], fields["start_date"], fields["end_date"], fields["is_active"],
-             fields["comment"], fields["days_mask"], "chestny_znak" if marking else "manual"),
+             fields["comment"], fields["days_mask"], fields["intake_quantity"], fields["intake_unit"],
+             "chestny_znak" if marking else "manual"),
         )
         med_id = cur.lastrowid
         db.executemany(
@@ -380,11 +448,14 @@ def api_medication_create():
 
             db.execute(
                 "INSERT INTO medication_packages "
-                "(medication_id, user_id, gtin, serial_number, sgtin, marking_code, status, checked_at, data_json, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, 'chestny_znak')",
+                "(medication_id, user_id, gtin, serial_number, sgtin, marking_code, status, checked_at, data_json, "
+                "package_quantity, package_unit, purchase_date, expiry_date, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, 'chestny_znak')",
                 (med_id, session["user_id"], marking.gtin, marking.serial_number,
                  marking.sgtin, marking.raw, mdlp_status,
-                 json.dumps(mdlp_data, ensure_ascii=False) if mdlp_data is not None else None),
+                 json.dumps(mdlp_data, ensure_ascii=False) if mdlp_data is not None else None,
+                 data.get("package_quantity"), data.get("package_unit"),
+                 data.get("purchase_date"), data.get("expiry_date")),
             )
         db.commit()
     except sqlite3.IntegrityError:
@@ -422,10 +493,11 @@ def api_medication_update(med_id):
 
     db.execute(
         "UPDATE medications SET name = ?, dose_value = ?, dose_unit = ?, instructions = ?, start_date = ?, "
-        "end_date = ?, is_active = ?, comment = ?, days_mask = ?, updated_at = datetime('now') WHERE id = ?",
+        "end_date = ?, is_active = ?, comment = ?, days_mask = ?, intake_quantity = ?, intake_unit = ?, "
+        "updated_at = datetime('now') WHERE id = ?",
         (fields["name"], fields["dose_value"], fields["dose_unit"], fields["instructions"],
          fields["start_date"], fields["end_date"], fields["is_active"], fields["comment"],
-         fields["days_mask"], med_id),
+         fields["days_mask"], fields["intake_quantity"], fields["intake_unit"], med_id),
     )
     if times is not None:
         db.execute("DELETE FROM medication_schedule WHERE medication_id = ?", (med_id,))

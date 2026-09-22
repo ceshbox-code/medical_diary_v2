@@ -56,7 +56,7 @@ def lookup_drug_by_gtin(gtin):
                    d.manufacturer, d.holder, d.reg_number, g.package_desc
             FROM drug_gtins g
             JOIN drugs d ON d.id = g.drug_id
-            WHERE g.gtin = %s AND d.status <> 'архив'
+            WHERE g.gtin = %s AND d.status IS DISTINCT FROM 'архив'
             ORDER BY d.id
             LIMIT 1
             """,
@@ -85,8 +85,8 @@ def drug_by_gtin(gtin):
         return jsonify(error="Справочник лекарств временно недоступен", code="drugdb_unavailable"), 503
 
     if not result:
-        audit("drug_reference_miss", "drug_gtins", None, {"gtin": gtin})
+        audit("drug_reference_miss", "drug_gtins", None, {})
         return jsonify(error="Препарат для этого GTIN не найден", code="not_found"), 404
 
-    audit("drug_reference_hit", "drug_gtins", None, {"gtin": gtin, "reg_number": result["reg_number"]})
+    audit("drug_reference_hit", "drug_gtins", None, {})
     return jsonify(result)

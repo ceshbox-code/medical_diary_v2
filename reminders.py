@@ -293,9 +293,17 @@ def api_medication_scan():
         # Распознавание Data Matrix не теряем, даже если MDLP временно недоступен.
         mdlp = {"status": e.kind, "error": str(e)}
 
+    drug = None
+    try:
+        from drug_reference import lookup_drug_by_gtin
+        drug = lookup_drug_by_gtin(parsed.gtin)
+    except Exception as e:
+        print(f"[drugdb] scan lookup failed: {type(e).__name__}", flush=True)
+
     audit("scan_medication_marking", "medication_packages", existing["medication_id"] if existing else None,
-          {"gtin": parsed.gtin, "has_existing": bool(existing), "mdlp_status": mdlp["status"]})
-    return jsonify(ok=True, source="chestny_znak", marking={
+          {"gtin": parsed.gtin, "has_existing": bool(existing), "mdlp_status": mdlp["status"],
+           "drug_reference_found": bool(drug)})
+    return jsonify(ok=True, source="chestny_znak", drug=drug, marking={
         "gtin": parsed.gtin,
         "serial_number": parsed.serial_number,
         "sgtin": parsed.sgtin,

@@ -477,10 +477,23 @@
     $('med-name').value = med ? med.name : '';
     $('med-dose').value = med && med.dose_value !== null ? fmtNum(med.dose_value) : '';
     var unitSel = $('med-unit');
-    if (!unitSel.options.length) {
-      UNITS.forEach(function (u) { var o = h('option', null, u); o.value = u; unitSel.appendChild(o); });
-    }
-    unitSel.value = med && med.dose_unit ? med.dose_unit : UNITS[0];
+    var intakeUnitSel = $('med-intake-unit');
+    var packageUnitSel = $('med-package-unit');
+    [unitSel, intakeUnitSel, packageUnitSel].forEach(function (sel) {
+      if (!sel.options.length) {
+        UNITS.forEach(function (u) { var o = h('option', null, u); o.value = u; sel.appendChild(o); });
+      }
+    });
+    unitSel.value = med && med.dose_unit ? med.dose_unit : 'мг';
+    intakeUnitSel.value = med && med.intake_unit ? med.intake_unit : 'шт';
+    packageUnitSel.value = 'шт';
+    $('med-intake-quantity').value = med && med.intake_quantity !== null ? fmtNum(med.intake_quantity) : '';
+    $('med-package-quantity').value = '';
+    $('med-purchase-date').value = med ? '' : localDate();
+    $('med-expiry-date').value = '';
+    ['med-package-quantity', 'med-package-unit', 'med-purchase-date', 'med-expiry-date'].forEach(function (id) {
+      $(id).disabled = !!med;
+    });
     $('med-instr').value = med ? med.instructions : '';
     clear($('med-times'));
     (med ? med.times : ['08:00']).forEach(addTimeRow);
@@ -506,6 +519,8 @@
       name: name,
       dose_value: doseRaw,
       dose_unit: doseRaw ? $('med-unit').value : '',
+      intake_quantity: $('med-intake-quantity').value.trim().replace(',', '.'),
+      intake_unit: $('med-intake-unit').value,
       instructions: $('med-instr').value.trim(),
       times: readTimes(),
       days: days,
@@ -514,7 +529,13 @@
       comment: $('med-comment').value.trim(),
       is_active: $('med-active').checked
     };
-    if (medCtx.marking) { payload.marking = medCtx.marking; }
+    if (medCtx.marking) {
+      payload.marking = medCtx.marking;
+      payload.package_quantity = $('med-package-quantity').value.trim().replace(',', '.');
+      payload.package_unit = $('med-package-unit').value;
+      payload.purchase_date = $('med-purchase-date').value;
+      payload.expiry_date = $('med-expiry-date').value;
+    }
     var btn = $('med-save');
     btn.disabled = true;
     try {

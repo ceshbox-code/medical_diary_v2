@@ -37,3 +37,19 @@ CREATE TABLE IF NOT EXISTS drug_import_runs (
 
 CREATE INDEX IF NOT EXISTS idx_drug_import_runs_source_started
     ON drug_import_runs(source, started_at DESC);
+
+
+-- Очередь строк МДЛП, для которых на момент импорта ещё нет записи ГРЛС.
+-- Нужна для идемпотентной синхронизации при разном порядке публикации источников.
+CREATE TABLE IF NOT EXISTS drug_gtin_pending (
+    id BIGSERIAL PRIMARY KEY,
+    gtin VARCHAR(14) NOT NULL,
+    reg_number VARCHAR(50) NOT NULL,
+    package_desc VARCHAR(500),
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(gtin, reg_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_drug_gtin_pending_reg
+    ON drug_gtin_pending(reg_number);

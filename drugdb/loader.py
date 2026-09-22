@@ -28,7 +28,10 @@ LOG = logging.getLogger("drugdb")
 
 DSN = os.getenv("DRUG_DB_DSN", "")
 GRLS_URL = os.getenv("GRLS_EXPORT_URL", "").strip()
-MDLP_URL = os.getenv("MDLP_EXPORT_URL", "").strip()
+MDLP_URL = os.getenv(
+    "MDLP_EXPORT_URL",
+    "https://xn--80aaani3am7aog.xn--80ajghhoc2aj1c8b.xn--p1ai/bi/api/opendata/7731376812-MDLPGtins/data/latest",
+).strip()
 TIMEOUT = int(os.getenv("DRUGDB_HTTP_TIMEOUT", "180"))
 BATCH_SIZE = int(os.getenv("DRUGDB_BATCH_SIZE", "2000"))
 

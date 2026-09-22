@@ -54,8 +54,10 @@ GTIN_ALIASES = ["gtin", "гтин", "код gtin", "gtin товара", "гти�
 REG_ALIASES = [
     "номер ру", "номер регистрационного удостоверения",
     "регистрационный номер", "reg_number", "номер регистрации",
+    "регистрационное удостоверение", "registration number",
+    "registration_number", "ru number", "ru_number",
 ]
-PACKAGE_ALIASES = ["описание упаковки", "упаковка", "характеристика упаковки", "package_desc"]
+PACKAGE_ALIASES = ["описание упаковки", "упаковка", "характеристика упаковки", "package_desc", "package description"]
 
 
 def _norm_header(v):
@@ -233,6 +235,7 @@ def load_grls(data):
                                     LOG.warning("GRLS row %s skipped: %s", seen, exc)
                     finally:
                         wb.close()
+                reconcile_pending(conn)
                 conn.commit()
                 _finish_run(conn, run_id, "success", seen, loaded, skipped)
             except Exception as exc:
@@ -272,11 +275,24 @@ def load_mdlp(data):
                     if not reg:
                         skipped += 1
                         continue
+                    package = _text(row[package_i], 500) if package_i is not None and package_i < len(row) else None
                     drug = conn.execute("SELECT id FROM drugs WHERE reg_number=%s", (reg,)).fetchone()
                     if not drug:
+                        # Публикации МДЛП и ГРЛС могут приходить в разном порядке.
+                        # Не теряем корректную строку: складываем её во временную
+                        # очередь и привяжем к drugs при следующем запуске.
+                        conn.execute(
+                            """
+                            INSERT INTO drug_gtin_pending(gtin,reg_number,package_desc,last_seen_at)
+                            VALUES(%s,%s,%s,NOW())
+                            ON CONFLICT(gtin,reg_number) DO UPDATE SET
+                              package_desc=EXCLUDED.package_desc,
+                              last_seen_at=NOW()
+                            """,
+                            (gtin, reg, package),
+                        )
                         skipped += 1
                         continue
-                    package = _text(row[package_i], 500) if package_i is not None and package_i < len(row) else None
                     conn.execute(
                         """
                         INSERT INTO drug_gtins(gtin,drug_id,package_desc)
@@ -291,6 +307,7 @@ def load_mdlp(data):
                 except Exception as exc:
                     skipped += 1
                     LOG.warning("MDLP row %s skipped: %s", seen, exc)
+            reconcile_pending(conn)
             conn.commit()
             _finish_run(conn, run_id, "success", seen, loaded, skipped)
         except Exception as exc:
@@ -298,6 +315,34 @@ def load_mdlp(data):
             _finish_run(conn, run_id, "error", seen, loaded, skipped, str(exc)[:4000])
             raise
     return seen, loaded, skipped
+
+
+def reconcile_pending(conn):
+    """Привязывает ранее неразрешённые GTIN к уже загруженным записям ГРЛС."""
+    rows = conn.execute(
+        "SELECT gtin, reg_number, package_desc FROM drug_gtin_pending ORDER BY id"
+    ).fetchall()
+    resolved = 0
+    for gtin, reg_number, package_desc in rows:
+        drug = conn.execute("SELECT id FROM drugs WHERE reg_number=%s", (reg_number,)).fetchone()
+        if not drug:
+            continue
+        conn.execute(
+            """
+            INSERT INTO drug_gtins(gtin,drug_id,package_desc)
+            VALUES(%s,%s,%s)
+            ON CONFLICT(gtin,drug_id) DO UPDATE SET package_desc=EXCLUDED.package_desc
+            """,
+            (gtin, drug[0], package_desc),
+        )
+        conn.execute(
+            "DELETE FROM drug_gtin_pending WHERE gtin=%s AND reg_number=%s",
+            (gtin, reg_number),
+        )
+        resolved += 1
+    if resolved:
+        LOG.info("MDLP pending mappings resolved: %s", resolved)
+    return resolved
 
 
 def main():

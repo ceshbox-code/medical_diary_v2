@@ -682,9 +682,10 @@ def api_intake_create():
     try:
         cur = db.execute(
             "INSERT INTO medication_intakes (user_id, medication_id, medication_name, dose_value, dose_unit, "
-            "scheduled_at, status, taken_at, comment, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')",
+            "intake_quantity, intake_unit, scheduled_at, status, taken_at, comment, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')",
             (session["user_id"], med_id, med["name"], med["dose_value"], med["dose_unit"],
-             scheduled_at, status, taken_at, comment),
+             med["intake_quantity"], med["intake_unit"], scheduled_at, status, taken_at, comment),
         )
         db.commit()
     except sqlite3.IntegrityError:

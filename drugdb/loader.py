@@ -308,6 +308,7 @@ def load_mdlp(data):
                     skipped += 1
                     LOG.warning("MDLP row %s skipped: %s", seen, exc)
             reconcile_pending(conn)
+            reconcile_pending(conn)
             conn.commit()
             _finish_run(conn, run_id, "success", seen, loaded, skipped)
         except Exception as exc:

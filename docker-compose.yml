@@ -11,9 +11,6 @@ services:
     volumes:
       - ./drugdb_data:/var/lib/postgresql/data
       - ./drugdb/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
-    depends_on:
-      drug-db:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DRUG_DB_USER:-medical_diary} -d ${DRUG_DB_NAME:-medical_drugs}"]
       interval: 10s
@@ -25,7 +22,7 @@ services:
     container_name: ${DRUG_DB_UPDATER_CONTAINER_NAME:-medical-diary-drug-db-updater}
     environment:
       TZ: ${TZ:-Europe/Moscow}
-      DRUG_DB_DSN: postgresql://${DRUG_DB_USER:-medical_diary}:${DRUG_DB_PASSWORD}@drug-db:5432/${DRUG_DB_NAME:-medical_drugs}
+      DRUG_DB_DSN: "host=drug-db port=5432 dbname=${DRUG_DB_NAME:-medical_drugs} user=${DRUG_DB_USER:-medical_diary} password=${DRUG_DB_PASSWORD}"
       GRLS_EXPORT_URL: ${GRLS_EXPORT_URL:-}
       MDLP_EXPORT_URL: ${MDLP_EXPORT_URL:-}
       DRUGDB_UPDATE_INTERVAL_SECONDS: ${DRUGDB_UPDATE_INTERVAL_SECONDS:-86400}
@@ -39,13 +36,16 @@ services:
     container_name: ${CONTAINER_NAME:-medical-diary-app}
     build: .
     environment:
-      - TZ=${TZ:-Europe/Moscow}
+      TZ: ${TZ:-Europe/Moscow}
+      DRUG_DB_DSN: "host=drug-db port=5432 dbname=${DRUG_DB_NAME:-medical_drugs} user=${DRUG_DB_USER:-medical_diary} password=${DRUG_DB_PASSWORD}"
     restart: unless-stopped
     env_file:
       - .env
     ports:
       - "${HTTP_PORT:-8000}:8000"
-    
+    depends_on:
+      drug-db:
+        condition: service_healthy
     volumes:
       - ./data:/data
       - ./backups:/backups
@@ -61,12 +61,10 @@ services:
       - ./mdlp_client.py:/app/mdlp_client.py:ro
       - ./drug_reference.py:/app/drug_reference.py:ro
       - ./drugdb:/app/drugdb:ro
-
       - ./assessments.py:/app/assessments.py:ro
       - ./pdf_export.py:/app/pdf_export.py:ro
       - ./backup.py:/app/backup.py:ro
       - ./reset_admin_password.py:/app/reset_admin_password.py:ro
-
     healthcheck:
       test:
         [

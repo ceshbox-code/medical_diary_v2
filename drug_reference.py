@@ -42,6 +42,30 @@ def _connection():
         conn.close()
 
 
+
+def lookup_drug_by_gtin(gtin):
+    gtin = _normalise_gtin(gtin)
+    with _connection() as conn:
+        row = conn.execute(
+            """
+            SELECT d.trade_name, d.inn, d.dosage_form, d.dosage_value,
+                   d.manufacturer, d.holder, d.reg_number, g.package_desc
+            FROM drug_gtins g
+            JOIN drugs d ON d.id = g.drug_id
+            WHERE g.gtin = %s AND d.status <> 'архив'
+            ORDER BY d.id
+            LIMIT 1
+            """,
+            (gtin,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "trade_name": row[0], "inn": row[1], "dosage_form": row[2],
+        "dosage_value": row[3], "manufacturer": row[4], "holder": row[5],
+        "reg_number": row[6], "package_desc": row[7], "gtin": gtin,
+    }
+
 @drug_reference_bp.get("/api/drug/by-gtin/<gtin>")
 @login_required
 def drug_by_gtin(gtin):
@@ -51,38 +75,14 @@ def drug_by_gtin(gtin):
         return jsonify(error=str(exc)), 400
 
     try:
-        with _connection() as conn:
-            row = conn.execute(
-                """
-                SELECT d.trade_name, d.inn, d.dosage_form, d.dosage_value,
-                       d.manufacturer, d.holder, d.reg_number,
-                       g.package_desc
-                FROM drug_gtins g
-                JOIN drugs d ON d.id = g.drug_id
-                WHERE g.gtin = %s AND d.status <> 'архив'
-                ORDER BY d.id
-                LIMIT 1
-                """,
-                (gtin,),
-            ).fetchone()
+        result = lookup_drug_by_gtin(gtin)
     except Exception as exc:
         print(f"[drugdb] lookup failed: {type(exc).__name__}", flush=True)
         return jsonify(error="Справочник лекарств временно недоступен", code="drugdb_unavailable"), 503
 
-    if not row:
+    if not result:
         audit("drug_reference_miss", "drug_gtins", None, {"gtin": gtin})
         return jsonify(error="Препарат для этого GTIN не найден", code="not_found"), 404
 
-    result = {
-        "trade_name": row[0],
-        "inn": row[1],
-        "dosage_form": row[2],
-        "dosage_value": row[3],
-        "manufacturer": row[4],
-        "holder": row[5],
-        "reg_number": row[6],
-        "package_desc": row[7],
-        "gtin": gtin,
-    }
-    audit("drug_reference_hit", "drug_gtins", None, {"gtin": gtin, "reg_number": row[6]})
+    audit("drug_reference_hit", "drug_gtins", None, {"gtin": gtin, "reg_number": result["reg_number"]})
     return jsonify(result)

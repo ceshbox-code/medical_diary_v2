@@ -1,7 +1,9 @@
 import unittest
+from unittest.mock import patch
 
 from drug_reference import _normalise_gtin
 from drugdb.loader import _find_column, _normalise_gtin as loader_normalise_gtin
+from drugdb import runner
 
 
 class DrugReferenceTests(unittest.TestCase):
@@ -15,6 +17,18 @@ class DrugReferenceTests(unittest.TestCase):
     def test_loader_and_api_use_same_gtin_rules(self):
         value = "04601234567893"
         self.assertEqual(loader_normalise_gtin(value), _normalise_gtin(value))
+
+    def test_runner_does_not_require_explicit_mdlp_url(self):
+        with patch.dict("os.environ", {}, clear=True):
+            with patch.object(runner, "main") as main:
+                runner._run("mdlp")
+                main.assert_called_once()
+
+    def test_runner_skips_grls_without_url(self):
+        with patch.dict("os.environ", {}, clear=True):
+            with patch.object(runner, "main") as main:
+                runner._run("grls")
+                main.assert_not_called()
 
     def test_mdlp_registration_aliases(self):
         headers = ["GTIN", "Номер регистрационного удостоверения", "Описание упаковки"]

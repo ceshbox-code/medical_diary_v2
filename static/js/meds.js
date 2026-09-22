@@ -641,6 +641,15 @@
     try {
       var out = await api('POST', '/api/medications/scan', { code: code });
       medCtx.marking = { raw: out.marking.raw };
+      if (out.drug) {
+        $('med-name').value = out.drug.trade_name || '';
+        $('med-dose').value = '';
+        $('med-unit').value = UNITS.indexOf('мг') >= 0 ? 'мг' : UNITS[0];
+        $('med-instr').value = '';
+        $('med-scan-status').textContent = 'Данные препарата найдены в локальном справочнике. Проверьте карточку и дополните данные упаковки.';
+      } else {
+        $('med-scan-status').textContent = 'Препарат по GTIN в локальном справочнике не найден. Данные можно заполнить вручную.';
+      }
       $('med-marking-preview').hidden = false;
       $('med-marking-preview').textContent =
         '✓ Код распознан · GTIN ' + out.marking.gtin +

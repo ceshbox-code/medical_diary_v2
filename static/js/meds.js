@@ -280,6 +280,14 @@
       var when = m.times.length ? m.times.join(', ') + ' · ' + fmtDayList(m.days) : 'без графика (по мере необходимости)';
       body.appendChild(h('div', 'med-sub', when));
       if (m.end_date) { body.appendChild(h('div', 'med-sub', 'до ' + fmtDate(m.end_date))); }
+      if (m.stock && m.stock.remaining_quantity !== null) {
+        body.appendChild(h('div', 'med-stock', 'Остаток: ' + fmtNum(m.stock.remaining_quantity) + ' ' + (m.stock.unit || '')));
+        if (m.stock.expiry_date) {
+          body.appendChild(h('div', 'med-sub', 'Срок годности ближайшей упаковки: ' + fmtDate(m.stock.expiry_date)));
+        }
+      } else if (m.stock && m.stock.package_count) {
+        body.appendChild(h('div', 'med-sub', 'Остаток: количество в упаковке не задано или единицы не совпадают'));
+      }
       if (!m.is_active) { body.appendChild(badge('skipped', 'Приостановлено')); }
       card.appendChild(body);
       var actions = h('div', 'med-actions');

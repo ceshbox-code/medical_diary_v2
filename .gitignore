@@ -1,6 +1,7 @@
    .env
    data/
    backups/
+drugdb_data/
    __pycache__/
    *.pycdeploy.sh
 deploy.conf

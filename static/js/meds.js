@@ -483,6 +483,10 @@
     $('med-marking-preview').hidden = true;
     $('med-marking-preview').textContent = '';
     $('med-name').value = med ? med.name : '';
+    $('med-inn').value = med && med.inn ? med.inn : '';
+    $('med-form').value = med && med.dosage_form ? med.dosage_form : '';
+    $('med-manufacturer').value = med && med.manufacturer ? med.manufacturer : '';
+    $('med-reg-number').value = med && med.reg_number ? med.reg_number : '';
     $('med-dose').value = med && med.dose_value !== null ? fmtNum(med.dose_value) : '';
     var unitSel = $('med-unit');
     var intakeUnitSel = $('med-intake-unit');
@@ -525,6 +529,10 @@
     if (!days.length) { setMsg('med-msg', 'Дни недели: выберите хотя бы один день', false); return; }
     var payload = {
       name: name,
+      inn: $('med-inn').value.trim(),
+      dosage_form: $('med-form').value.trim(),
+      manufacturer: $('med-manufacturer').value.trim(),
+      reg_number: $('med-reg-number').value.trim(),
       dose_value: doseRaw,
       dose_unit: doseRaw ? $('med-unit').value : '',
       intake_quantity: $('med-intake-quantity').value.trim().replace(',', '.'),
@@ -672,6 +680,10 @@
       medCtx.marking = { raw: out.marking.raw };
       if (out.drug) {
         $('med-name').value = out.drug.trade_name || '';
+        $('med-inn').value = out.drug.inn || '';
+        $('med-form').value = out.drug.dosage_form || '';
+        $('med-manufacturer').value = out.drug.manufacturer || '';
+        $('med-reg-number').value = out.drug.reg_number || '';
         $('med-dose').value = '';
         $('med-unit').value = UNITS.indexOf('мг') >= 0 ? 'мг' : UNITS[0];
         $('med-instr').value = '';

@@ -409,6 +409,17 @@ def api_medication_create():
 
     try:
         marking = _parse_marking_payload(data.get("marking"))
+        package_quantity, package_unit = _parse_optional_quantity(
+            data.get("package_quantity"), data.get("package_unit"), "Количество в упаковке"
+        )
+        purchase_date = None if not str(data.get("purchase_date") or "").strip() else parse_iso_date(
+            data["purchase_date"], None
+        ).isoformat()
+        expiry_date = None if not str(data.get("expiry_date") or "").strip() else parse_iso_date(
+            data["expiry_date"], None
+        ).isoformat()
+        if expiry_date and purchase_date and expiry_date < purchase_date:
+            raise ValueError("Срок годности раньше даты покупки")
     except ValueError as e:
         return jsonify(error=str(e)), 400
 
@@ -454,8 +465,7 @@ def api_medication_create():
                 (med_id, session["user_id"], marking.gtin, marking.serial_number,
                  marking.sgtin, marking.raw, mdlp_status,
                  json.dumps(mdlp_data, ensure_ascii=False) if mdlp_data is not None else None,
-                 data.get("package_quantity"), data.get("package_unit"),
-                 data.get("purchase_date"), data.get("expiry_date")),
+                 package_quantity, package_unit, purchase_date, expiry_date),
             )
         db.commit()
     except sqlite3.IntegrityError:

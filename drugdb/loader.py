@@ -130,69 +130,109 @@ def _finish_run(conn, run_id, status, seen, loaded, skipped, error=None):
     conn.commit()
 
 
+def _find_header_row(ws, required_aliases, max_rows=30):
+    for row_no, row in enumerate(ws.iter_rows(min_row=1, max_row=max_rows, values_only=True), start=1):
+        if _find_column(row, required_aliases) is not None:
+            return row_no, row
+    return None, None
+
+
+def _grls_workbooks(data, root):
+    archive = root / "grls.bin"
+    archive.write_bytes(data)
+    if zipfile.is_zipfile(archive):
+        zroot = root / "unzipped"
+        zroot.mkdir()
+        with zipfile.ZipFile(archive) as z:
+            candidates = [n for n in z.namelist()
+                          if n.lower().endswith(".xlsx") and not n.endswith("/")]
+            if not candidates:
+                raise ValueError("В ZIP ГРЛС не найден XLSX")
+            paths = []
+            for name in candidates:
+                target = zroot / Path(name).name
+                with z.open(name) as src, target.open("wb") as dst:
+                    dst.write(src.read())
+                paths.append(target)
+            return paths
+    return [archive]
+
+
+def _infer_grls_status(path):
+    name = path.stem.lower().replace("_", " ")
+    if "не действует" in name or "архив" in name:
+        return "архив"
+    if "действует" in name:
+        return "действует"
+    return None
+
+
 def load_grls(data):
-    """Загружает ZIP/XLSX ГРЛС. Возвращает (seen, loaded, skipped)."""
+    """Загружает все XLSX из ZIP ГРЛС, не прерывая импорт из-за отдельных строк."""
     seen = loaded = skipped = 0
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
-        archive = root / "grls.bin"
-        archive.write_bytes(data)
-        if zipfile.is_zipfile(archive):
-            with zipfile.ZipFile(archive) as z:
-                candidates = [n for n in z.namelist() if n.lower().endswith(".xlsx")]
-                if not candidates:
-                    raise ValueError("В ZIP ГРЛС не найден XLSX")
-                z.extract(candidates[0], root)
-                xlsx = root / candidates[0]
-        else:
-            xlsx = archive
-        wb = load_workbook(xlsx, read_only=True, data_only=True)
-        ws = wb[wb.sheetnames[0]]
-        rows = ws.iter_rows(values_only=True)
-        headers = next(rows, None)
-        if not headers:
-            raise ValueError("Пустой XLSX ГРЛС")
-        idx = {k: _find_column(headers, aliases) for k, aliases in HEADER_ALIASES.items()}
-        if idx["reg_number"] is None or idx["trade_name"] is None:
-            raise ValueError("В XLSX ГРЛС не найдены обязательные колонки: номер РУ и торговое наименование")
-
+        paths = _grls_workbooks(data, root)
         with psycopg.connect(DSN) as conn:
             run_id = _start_run(conn, "grls")
             try:
-                for row in rows:
-                    seen += 1
+                for xlsx in paths:
+                    wb = load_workbook(xlsx, read_only=True, data_only=True)
                     try:
-                        reg = _text(row[idx["reg_number"]], 50)
-                        name = _text(row[idx["trade_name"]], 255)
-                        if not reg or not name:
-                            skipped += 1
-                            continue
-                        values = {
-                            k: _text(row[i], 500 if k in ("manufacturer", "holder") else 255)
-                            if i is not None else None
-                            for k, i in idx.items() if k != "reg_number"
-                        }
-                        conn.execute(
-                            """
-                            INSERT INTO drugs(reg_number,trade_name,inn,dosage_form,dosage_value,
-                                              manufacturer,holder,status,updated_at)
-                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,NOW())
-                            ON CONFLICT(reg_number) DO UPDATE SET
-                              trade_name=EXCLUDED.trade_name, inn=EXCLUDED.inn,
-                              dosage_form=EXCLUDED.dosage_form, dosage_value=EXCLUDED.dosage_value,
-                              manufacturer=EXCLUDED.manufacturer, holder=EXCLUDED.holder,
-                              status=EXCLUDED.status, updated_at=NOW()
-                            """,
-                            (reg, name, values.get("inn"), values.get("dosage_form"),
-                             values.get("dosage_value"), values.get("manufacturer"),
-                             values.get("holder"), values.get("status")),
-                        )
-                        loaded += 1
-                        if loaded % BATCH_SIZE == 0:
-                            conn.commit()
-                    except Exception as exc:
-                        skipped += 1
-                        LOG.warning("GRLS row %s skipped: %s", seen, exc)
+                        for ws in wb.worksheets:
+                            headers_row, headers = _find_header_row(
+                                ws, HEADER_ALIASES["reg_number"], max_rows=40
+                            )
+                            if headers_row is None:
+                                continue
+                            rows = ws.iter_rows(min_row=headers_row + 1, values_only=True)
+                            idx = {k: _find_column(headers, aliases)
+                                   for k, aliases in HEADER_ALIASES.items()}
+                            if idx["reg_number"] is None or idx["trade_name"] is None:
+                                continue
+                            inferred_status = _infer_grls_status(xlsx)
+                            for row in rows:
+                                seen += 1
+                                try:
+                                    reg = _text(row[idx["reg_number"]], 50)
+                                    name = _text(row[idx["trade_name"]], 255)
+                                    if not reg or not name:
+                                        skipped += 1
+                                        continue
+                                    values = {
+                                        k: _text(row[i], 500 if k in ("manufacturer", "holder") else 255)
+                                        if i is not None and i < len(row) else None
+                                        for k, i in idx.items() if k != "reg_number"
+                                    }
+                                    status = values.get("status") or inferred_status
+                                    conn.execute(
+                                        """
+                                        INSERT INTO drugs(
+                                            reg_number,trade_name,inn,dosage_form,dosage_value,
+                                            manufacturer,holder,status,updated_at
+                                        )
+                                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                                        ON CONFLICT(reg_number) DO UPDATE SET
+                                          trade_name=EXCLUDED.trade_name, inn=EXCLUDED.inn,
+                                          dosage_form=EXCLUDED.dosage_form,
+                                          dosage_value=EXCLUDED.dosage_value,
+                                          manufacturer=EXCLUDED.manufacturer,
+                                          holder=EXCLUDED.holder,
+                                          status=EXCLUDED.status,
+                                          updated_at=NOW()
+                                        """,
+                                        (reg, name, values.get("inn"), values.get("dosage_form"),
+                                         values.get("dosage_value"), values.get("manufacturer"),
+                                         values.get("holder"), status),
+                                    )
+                                    loaded += 1
+                                    if loaded % BATCH_SIZE == 0:
+                                        conn.commit()
+                                except Exception as exc:
+                                    skipped += 1
+                                    LOG.warning("GRLS row %s skipped: %s", seen, exc)
+                    finally:
+                        wb.close()
                 conn.commit()
                 _finish_run(conn, run_id, "success", seen, loaded, skipped)
             except Exception as exc:
@@ -200,7 +240,6 @@ def load_grls(data):
                 _finish_run(conn, run_id, "error", seen, loaded, skipped, str(exc)[:4000])
                 raise
     return seen, loaded, skipped
-
 
 def load_mdlp(data):
     """Загружает CSV МДЛП GTIN↔РУ. Поддерживает BOM, ; и , разделители."""

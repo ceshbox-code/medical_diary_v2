@@ -45,20 +45,6 @@ HEADER_ALIASES = {
     "dosage_form": ["лекарственная форма", "форма выпуска", "dosage_form"],
     "dosage_value": ["дозировка", "дозы", "дозировка/концентрация", "dosage_value"],
     "manufacturer": ["производитель", "наименование производителя", "manufacturer"],
-    "holder": [
-        "юридическое лицо, на имя которого выдано регистрационное удостоверение",
-        "держатель регистрационного удостоверения",
-        "держатель/владелец регистрационного удостоверения",
-        "владелец регистрационного удостоверения", "holder",
-    ],
-    "registration_date": ["дата регистрации", "registration_date"],
-    "expiry_date": ["дата окончания действия регистрационного удостоверения", "дата окончания действия", "expiry_date"],
-    "cancellation_date": ["дата аннулирования регистрационного удостоверения", "дата аннулирования", "cancellation_date"],
-    "production_stages": ["сведения о стадиях производства", "стадии производства", "production_stages"],
-    "pharmacotherapeutic_group": ["фармако-терапевтическая группа", "фармакотерапевтическая группа", "pharmacotherapeutic_group"],
-    "essential_drug": ["наличие лекарственного препарата в перечне жнвлп", "жнвлп", "essential_drug"],
-    "contains_controlled_substances": ["наличие в лекарственном препарате наркотических средств, психотропных веществ", "наркотических средств", "controlled_substances"],
-    "orphan_status": ["статус признания лекарственного препарата орфанным", "орфанный", "orphan_status"],
     "status": ["состояние", "статус", "status"],
 }
 
@@ -216,7 +202,6 @@ def _parse_bool(value):
     if normalized in {"нет", "отсутствует", "0", "false", "no"}:
         return False
     return None
-
 
 def _record_check(conn, source, status, error=None):
     """Фиксирует даже проверки, при которых импорт не потребовался."""
@@ -437,8 +422,7 @@ def load_grls(data):
                                             values.get("production_stages"),
                                             values.get("pharmacotherapeutic_group"),
                                             _parse_bool(values.get("essential_drug")),
-                                            _parse_bool(values.get("contains_controlled_substances")),
-                                            values.get("orphan_status"), status,
+                                            _parse_bool(values.get("contains_controlled_substances")),                                            values.get("orphan_status"), status,
                                         ),
                                     )
                                     loaded += 1

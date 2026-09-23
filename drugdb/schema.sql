@@ -7,6 +7,14 @@ CREATE TABLE IF NOT EXISTS drugs (
     dosage_value VARCHAR(255),
     manufacturer VARCHAR(500),
     holder VARCHAR(500),
+    registration_date DATE,
+    expiry_date DATE,
+    cancellation_date DATE,
+    production_stages TEXT,
+    pharmacotherapeutic_group VARCHAR(500),
+    essential_drug BOOLEAN,
+    contains_controlled_substances BOOLEAN,
+    orphan_status VARCHAR(255),
     status VARCHAR(50),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

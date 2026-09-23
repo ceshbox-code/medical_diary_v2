@@ -678,6 +678,7 @@
     try {
       var out = await api('POST', '/api/medications/scan', { code: code });
       medCtx.marking = { raw: out.marking.raw };
+      $('med-expiry-date').value = out.marking.expiry_date || '';
       if (out.drug) {
         $('med-name').value = out.drug.trade_name || '';
         $('med-inn').value = out.drug.inn || '';
@@ -699,6 +700,8 @@
       $('med-marking-preview').textContent =
         '✓ Код распознан · GTIN ' + out.marking.gtin +
         ' · серия ' + out.marking.serial_number +
+        (out.marking.batch_number ? ' · серия партии ' + out.marking.batch_number : '') +
+        (out.marking.expiry_date ? ' · годен до ' + fmtDate(out.marking.expiry_date) : '') +
         (out.marking.already_registered ? ' · уже зарегистрирован' : '');
       if (out.mdlp && out.mdlp.status === 'found') {
         $('med-scan-status').textContent = 'MDLP: упаковка найдена в общедоступном реестре.';

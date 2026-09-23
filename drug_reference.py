@@ -4,6 +4,7 @@
 Это позволяет загрузчику работать независимо от пользовательских медицинских данных.
 """
 import os
+import re
 from contextlib import contextmanager
 
 from flask import Blueprint, jsonify, request
@@ -22,6 +23,30 @@ class DrugReferenceAmbiguousError(ValueError):
 drug_reference_bp = Blueprint("drug_reference", __name__)
 DSN = os.getenv("DRUG_DB_DSN", "").strip()
 GTIN_LEN = 14
+
+# Количество извлекаем только при однозначном указании числа единиц
+# лекарственной формы. Объём, масса и концентрация намеренно не интерпретируются.
+_PACKAGE_QTY_PATTERNS = (
+    re.compile(r"(?<![\d.,])(?:№\s*)?(\d{1,6})\s*(?:таблет(?:ка|ки|ок)|капсул(?:а|ы)|драже|суппозитор(?:ий|ия|иев))\b", re.I),
+    re.compile(r"(?<![\d.,])(?:№\s*)?(\d{1,6})\s*(?:ампул(?:а|ы)|флакон(?:а|ов)?|штук|шт\.)\b", re.I),
+)
+
+
+def _parse_package_quantity(package_desc):
+    """Возвращает (количество, 'шт') только для явно указанного count."""
+    text = str(package_desc or "").strip()
+    if not text:
+        return None, None
+    matches = []
+    for pattern in _PACKAGE_QTY_PATTERNS:
+        matches.extend(pattern.findall(text))
+    values = {int(value) for value in matches}
+    if len(values) != 1:
+        return None, None
+    value = next(iter(values))
+    if value < 1 or value > 1000000:
+        return None, None
+    return value, "шт"
 
 
 def _normalise_gtin(value):
@@ -73,10 +98,12 @@ def lookup_drug_by_gtin(gtin):
             "GTIN связан с несколькими действующими регистрационными удостоверениями"
         )
     row = rows[0]
+    package_quantity, package_unit = _parse_package_quantity(row[6])
     return {
         "trade_name": row[0], "inn": row[1], "dosage_form": row[2],
         "dosage_value": row[3], "manufacturer": row[4],
         "reg_number": row[5], "package_desc": row[6], "gtin": gtin,
+        "package_quantity": package_quantity, "package_unit": package_unit,
     }
 
 @drug_reference_bp.get("/api/drug/by-gtin/<gtin>")

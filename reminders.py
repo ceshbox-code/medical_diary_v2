@@ -394,6 +394,9 @@ def api_medication_scan():
         "serial_number": parsed.serial_number,
         "sgtin": parsed.sgtin,
         "raw": parsed.raw,
+        "batch_number": parsed.batch_number,
+        "expiry_date": parsed.expiry_date,
+        "production_date": parsed.production_date,
         "already_registered": bool(existing),
     }, mdlp=mdlp)
 
@@ -437,9 +440,12 @@ def api_medication_create():
         purchase_date = None if not str(data.get("purchase_date") or "").strip() else parse_iso_date(
             data["purchase_date"], None
         ).isoformat()
-        expiry_date = None if not str(data.get("expiry_date") or "").strip() else parse_iso_date(
-            data["expiry_date"], None
-        ).isoformat()
+        expiry_date = (
+            marking.expiry_date
+            if marking and marking.expiry_date
+            else None if not str(data.get("expiry_date") or "").strip()
+            else parse_iso_date(data["expiry_date"], None).isoformat()
+        )
         if expiry_date and purchase_date and expiry_date < purchase_date:
             raise ValueError("Срок годности раньше даты покупки")
     except ValueError as e:
@@ -482,11 +488,11 @@ def api_medication_create():
 
             db.execute(
                 "INSERT INTO medication_packages "
-                "(medication_id, user_id, gtin, serial_number, sgtin, marking_code, status, checked_at, data_json, "
+                "(medication_id, user_id, gtin, serial_number, batch_number, sgtin, marking_code, status, checked_at, data_json, "
                 "package_quantity, package_unit, purchase_date, expiry_date, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, 'chestny_znak')",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, 'chestny_znak')",
                 (med_id, session["user_id"], marking.gtin, marking.serial_number,
-                 marking.sgtin, marking.raw, mdlp_status,
+                 marking.batch_number, marking.sgtin, marking.raw, mdlp_status,
                  json.dumps(mdlp_data, ensure_ascii=False) if mdlp_data is not None else None,
                  package_quantity, package_unit, purchase_date, expiry_date),
             )

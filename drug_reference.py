@@ -15,6 +15,10 @@ try:
 except ImportError:  # pragma: no cover
     psycopg = None
 
+class DrugReferenceAmbiguousError(ValueError):
+    """GTIN связан более чем с одной действующей записью ГРЛС."""
+
+
 drug_reference_bp = Blueprint("drug_reference", __name__)
 DSN = os.getenv("DRUG_DB_DSN", "").strip()
 GTIN_LEN = 14
@@ -50,7 +54,7 @@ def _connection():
 def lookup_drug_by_gtin(gtin):
     gtin = _normalise_gtin(gtin)
     with _connection() as conn:
-        row = conn.execute(
+        rows = conn.execute(
             """
             SELECT d.trade_name, d.inn, d.dosage_form, d.dosage_value,
                    d.manufacturer, d.holder, d.reg_number, g.package_desc
@@ -58,12 +62,17 @@ def lookup_drug_by_gtin(gtin):
             JOIN drugs d ON d.id = g.drug_id
             WHERE g.gtin = %s AND d.status IS DISTINCT FROM 'архив'
             ORDER BY d.id
-            LIMIT 1
+            LIMIT 2
             """,
             (gtin,),
-        ).fetchone()
-    if not row:
+        ).fetchall()
+    if not rows:
         return None
+    if len(rows) > 1:
+        raise DrugReferenceAmbiguousError(
+            "GTIN связан с несколькими действующими регистрационными удостоверениями"
+        )
+    row = rows[0]
     return {
         "trade_name": row[0], "inn": row[1], "dosage_form": row[2],
         "dosage_value": row[3], "manufacturer": row[4], "holder": row[5],
@@ -80,6 +89,12 @@ def drug_by_gtin(gtin):
 
     try:
         result = lookup_drug_by_gtin(gtin)
+    except DrugReferenceAmbiguousError:
+        audit("drug_reference_ambiguous", "drug_gtins", None, {})
+        return jsonify(
+            error="Для этого GTIN найдено несколько действующих записей ГРЛС",
+            code="ambiguous",
+        ), 409
     except Exception as exc:
         print(f"[drugdb] lookup failed: {type(exc).__name__}", flush=True)
         return jsonify(error="Справочник лекарств временно недоступен", code="drugdb_unavailable"), 503

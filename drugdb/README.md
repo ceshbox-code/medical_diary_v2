@@ -23,7 +23,7 @@ python drugdb/loader.py mdlp --file ./mdlp.csv
 ```sql
 SELECT d.trade_name, d.reg_number, g.gtin
 FROM drug_gtins g JOIN drugs d ON d.id=g.drug_id
-WHERE g.gtin='04601234567890';
+WHERE g.gtin='04601234567893';
 ```
 
 Для production URL выгрузки задаются в `.env`; секреты и пароли в Git не хранятся.

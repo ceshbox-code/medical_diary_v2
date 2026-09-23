@@ -342,6 +342,25 @@ def _infer_grls_status(path):
     return "неизвестно"
 
 
+def _normalise_grls_status(value, fallback):
+    """Приводит разные значения статуса ГРЛС к внутреннему enum."""
+    text = _text(value, 255)
+    if not text:
+        return fallback
+    normalized = text.lower().replace("ё", "е")
+    if "не действует" in normalized or "аннулирован" in normalized or "архив" in normalized:
+        return "архив"
+    if (
+        "действующ" in normalized
+        or "действует" in normalized
+        or "подтверждении государственной регистрации" in normalized
+        or "иностранных упаковках" in normalized
+        or "правилам еаэс" in normalized
+    ):
+        return "действует"
+    return "неизвестно"
+
+
 def load_grls(data):
     """Загружает все XLSX из ZIP ГРЛС, не прерывая импорт из-за отдельных строк."""
     seen = loaded = skipped = 0
@@ -381,7 +400,7 @@ def load_grls(data):
                                         if i is not None and i < len(row) else None
                                         for k, i in idx.items() if k != "reg_number"
                                     }
-                                    status = values.get("status") or inferred_status
+                                    status = _normalise_grls_status(values.get("status"), inferred_status)
                                     conn.execute(
                                         """
                                         INSERT INTO drugs(

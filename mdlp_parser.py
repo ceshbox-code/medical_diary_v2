@@ -55,9 +55,12 @@ def _clean(raw: str) -> str:
         cursor = 0
         previous_ai = None
         for match in matches:
+            # Скобки в человекочитаемой записи заменяют разделитель
+            # переменной длины, поэтому GS должен стоять ПОСЛЕ значения
+            # предыдущего AI 10/21 и перед следующим AI.
+            chunks.append(value[cursor:match.start()])
             if previous_ai in (BATCH_AI, SERIAL_AI) and chunks:
                 chunks.append(GS)
-            chunks.append(value[cursor:match.start()])
             chunks.append(match.group(1))
             cursor = match.end()
             previous_ai = match.group(1)

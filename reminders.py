@@ -440,10 +440,8 @@ def api_medication_create():
         purchase_date = None if not str(data.get("purchase_date") or "").strip() else parse_iso_date(
             data["purchase_date"], None
         ).isoformat()
-        expiry_date = (
-            marking.expiry_date
-            if marking and marking.expiry_date
-            else None if not str(data.get("expiry_date") or "").strip()
+        expiry_date = marking.expiry_date if marking and marking.expiry_date else (
+            None if not str(data.get("expiry_date") or "").strip()
             else parse_iso_date(data["expiry_date"], None).isoformat()
         )
         if expiry_date and purchase_date and expiry_date < purchase_date:

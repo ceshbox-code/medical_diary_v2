@@ -57,11 +57,7 @@ def lookup_drug_by_gtin(gtin):
         rows = conn.execute(
             """
             SELECT d.trade_name, d.inn, d.dosage_form, d.dosage_value,
-                   d.manufacturer, d.holder, d.registration_date, d.expiry_date,
-                   d.cancellation_date, d.production_stages,
-                   d.pharmacotherapeutic_group, d.essential_drug,
-                   d.contains_controlled_substances, d.orphan_status,
-                   d.reg_number, g.package_desc
+                   d.manufacturer, d.reg_number, g.package_desc
             FROM drug_gtins g
             JOIN drugs d ON d.id = g.drug_id
             WHERE g.gtin = %s AND d.status = 'действует'
@@ -79,16 +75,8 @@ def lookup_drug_by_gtin(gtin):
     row = rows[0]
     return {
         "trade_name": row[0], "inn": row[1], "dosage_form": row[2],
-        "dosage_value": row[3], "manufacturer": row[4], "holder": row[5],
-        "registration_date": row[6].isoformat() if row[6] else None,
-        "expiry_date": row[7].isoformat() if row[7] else None,
-        "cancellation_date": row[8].isoformat() if row[8] else None,
-        "production_stages": row[9],
-        "pharmacotherapeutic_group": row[10],
-        "essential_drug": row[11],
-        "contains_controlled_substances": row[12],
-        "orphan_status": row[13],
-        "reg_number": row[14], "package_desc": row[15], "gtin": gtin,
+        "dosage_value": row[3], "manufacturer": row[4],
+        "reg_number": row[5], "package_desc": row[6], "gtin": gtin,
     }
 
 @drug_reference_bp.get("/api/drug/by-gtin/<gtin>")

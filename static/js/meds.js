@@ -688,6 +688,10 @@
         $('med-unit').value = UNITS.indexOf('мг') >= 0 ? 'мг' : UNITS[0];
         $('med-instr').value = '';
         $('med-scan-status').textContent = 'Данные препарата найдены в локальном справочнике. Проверьте карточку и дополните данные упаковки.';
+      } else if (out.drug_reference && out.drug_reference.status === 'ambiguous') {
+        $('med-scan-status').textContent = 'Для этого GTIN найдено несколько действующих записей. Данные автоматически не подставлены — проверьте номер РУ и заполните карточку вручную.';
+      } else if (out.drug_reference && out.drug_reference.status === 'unavailable') {
+        $('med-scan-status').textContent = 'Локальный справочник временно недоступен. Код распознан, данные препарата можно заполнить вручную.';
       } else {
         $('med-scan-status').textContent = 'Препарат по GTIN в локальном справочнике не найден. Данные можно заполнить вручную.';
       }

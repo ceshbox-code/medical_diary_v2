@@ -64,7 +64,7 @@ def lookup_drug_by_gtin(gtin):
                    d.reg_number, g.package_desc
             FROM drug_gtins g
             JOIN drugs d ON d.id = g.drug_id
-            WHERE g.gtin = %s AND d.status IS DISTINCT FROM 'архив'
+            WHERE g.gtin = %s AND d.status = 'действует'
             ORDER BY d.id
             LIMIT 2
             """,

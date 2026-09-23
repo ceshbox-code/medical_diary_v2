@@ -47,10 +47,22 @@ def _clean(raw: str) -> str:
         raise MarkingCodeError("Некорректная длина кода маркировки")
     # Некоторые сканеры/камеры возвращают человекочитаемый AI-формат (01)... .
     value = value.replace("\\(", "(").replace("\\)", ")")
-    def _parenthesized_ai(match):
-        ai = match.group(1)
-        return ai if ai == "01" else GS + ai
-    value = re.sub(r"\((01|10|11|17|21)\)", _parenthesized_ai, value)
+    # В человекочитаемом "(AI)значение(AI)значение" скобки заменяют
+    # GS1-разделитель для переменной длины AI 10/21.
+    matches = list(re.finditer(r"\((01|10|11|17|21)\)", value))
+    if matches:
+        chunks = []
+        cursor = 0
+        previous_ai = None
+        for match in matches:
+            if previous_ai in (BATCH_AI, SERIAL_AI) and chunks:
+                chunks.append(GS)
+            chunks.append(value[cursor:match.start()])
+            chunks.append(match.group(1))
+            cursor = match.end()
+            previous_ai = match.group(1)
+        chunks.append(value[cursor:])
+        value = "".join(chunks)
     return value
 
 

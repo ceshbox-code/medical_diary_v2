@@ -390,14 +390,7 @@ def load_grls(data):
                                         """,
                                         (
                                             reg, name, values.get("inn"), values.get("dosage_form"),
-                                            values.get("dosage_value"), values.get("manufacturer"),
-                                            values.get("holder"), _parse_date(values.get("registration_date")),
-                                            _parse_date(values.get("expiry_date")),
-                                            _parse_date(values.get("cancellation_date")),
-                                            values.get("production_stages"),
-                                            values.get("pharmacotherapeutic_group"),
-                                            _parse_bool(values.get("essential_drug")),
-                                            _parse_bool(values.get("contains_controlled_substances")),                                            values.get("orphan_status"), status,
+                                            values.get("dosage_value"), values.get("manufacturer"), status,
                                         ),
                                     )
                                     loaded += 1

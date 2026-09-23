@@ -16,6 +16,9 @@ GS = "\x1d"
 MAX_CODE_LENGTH = 4096
 GTIN_AI = "01"
 SERIAL_AI = "21"
+EXPIRY_AI = "17"
+BATCH_AI = "10"
+PRODUCTION_AI = "11"
 
 
 @dataclass(frozen=True)
@@ -23,6 +26,9 @@ class MarkingCode:
     raw: str
     gtin: str
     serial_number: str
+    batch_number: str | None = None
+    expiry_date: str | None = None
+    production_date: str | None = None
 
     @property
     def sgtin(self) -> str:
@@ -41,7 +47,7 @@ def _clean(raw: str) -> str:
         raise MarkingCodeError("Некорректная длина кода маркировки")
     # Некоторые сканеры/камеры возвращают человекочитаемый AI-формат (01)... .
     value = value.replace("\\(", "(").replace("\\)", ")")
-    value = re.sub(r"\((?:01|21)\)", lambda m: m.group(0)[1:-1], value)
+    value = re.sub(r"\((?:01|10|11|17|21)\)", lambda m: m.group(0)[1:-1], value)
     return value
 
 
@@ -59,27 +65,74 @@ def _validate_gtin(gtin: str) -> None:
         raise MarkingCodeError("Некорректная контрольная цифра GTIN")
 
 
+def _parse_gs1_date(value: str, label: str) -> str:
+    """GS1 YYMMDD -> ISO date."""
+    if not re.fullmatch(r"\d{6}", value):
+        raise MarkingCodeError(f"{label}: ожидается дата YYMMDD")
+    yy, mm, dd = int(value[:2]), int(value[2:4]), int(value[4:6])
+    year = 2000 + yy if yy <= 49 else 1900 + yy
+    try:
+        from datetime import date
+        return date(year, mm, dd).isoformat()
+    except ValueError:
+        raise MarkingCodeError(f"{label}: некорректная дата")
+
+
 def parse_marking_code(raw: str) -> MarkingCode:
     value = _clean(raw)
-
-    # Стандартный вариант для лекарств: AI 01 + GTIN(14), затем AI 21 +
-    # серийный номер. После серийного номера сканер обычно возвращает GS/FNC1,
-    # после которого могут следовать криптографические данные.
-    if value.startswith(GTIN_AI):
-        gtin = value[2:16]
-        _validate_gtin(gtin)
-        rest = value[16:]
-        if not rest.startswith(SERIAL_AI):
-            raise MarkingCodeError("В коде не найден серийный номер AI 21")
-        serial_and_tail = rest[2:]
-    else:
-        # Поддерживаем только явно размеченный альтернативный ввод вида
-        # "01...21..." после удаления скобок. Иные форматы не угадываем.
+    if not value.startswith(GTIN_AI):
         raise MarkingCodeError("Код не начинается с AI 01 (GTIN)")
+    gtin = value[2:16]
+    _validate_gtin(gtin)
+    pos = 16
+    serial = None
+    batch = None
+    expiry = None
+    production = None
 
-    serial = serial_and_tail.split(GS, 1)[0]
-    if not serial:
-        raise MarkingCodeError("Пустой серийный номер")
-    if len(serial) != 13 or not re.fullmatch(r"[!-~]+", serial):
+    while pos < len(value):
+        ai = value[pos:pos + 2]
+        pos += 2
+        if ai == SERIAL_AI:
+            end = value.find(GS, pos)
+            if end < 0:
+                serial = value[pos:pos + 13]
+                pos += len(serial)
+            else:
+                serial = value[pos:end]
+                pos = end + 1
+        elif ai in (EXPIRY_AI, PRODUCTION_AI):
+            if pos + 6 > len(value):
+                raise MarkingCodeError(f"AI {ai}: неполная дата")
+            date_value = value[pos:pos + 6]
+            pos += 6
+            if ai == EXPIRY_AI:
+                expiry = _parse_gs1_date(date_value, "Срок годности")
+            else:
+                production = _parse_gs1_date(date_value, "Дата производства")
+        elif ai == BATCH_AI:
+            end = value.find(GS, pos)
+            if end < 0:
+                batch = value[pos:]
+                pos = len(value)
+            else:
+                batch = value[pos:end]
+                pos = end + 1
+            if not batch or len(batch) > 20 or not re.fullmatch(r"[!-~]+", batch):
+                raise MarkingCodeError("AI 10: некорректный номер серии")
+        else:
+            break
+
+    if serial is None:
+        raise MarkingCodeError("В коде не найден серийный номер AI 21")
+    if not serial or len(serial) != 13 or not re.fullmatch(r"[!-~]+", serial):
         raise MarkingCodeError("Некорректный серийный номер")
-    return MarkingCode(raw=value, gtin=gtin, serial_number=serial)
+
+    return MarkingCode(
+        raw=value,
+        gtin=gtin,
+        serial_number=serial,
+        batch_number=batch,
+        expiry_date=expiry,
+        production_date=production,
+    )

@@ -46,6 +46,7 @@ HEADER_ALIASES = {
     "dosage_value": ["дозировка", "дозы", "дозировка/концентрация", "dosage_value"],
     "manufacturer": ["производитель", "наименование производителя", "manufacturer"],
     "holder": [
+        "юридическое лицо, на имя которого выдано регистрационное удостоверение",
         "держатель регистрационного удостоверения",
         "держатель/владелец регистрационного удостоверения",
         "владелец регистрационного удостоверения", "holder",
@@ -184,7 +185,8 @@ def _ensure_drug_columns(conn):
     }
     existing = {
         row[0] for row in conn.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name='drugs'"
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema=current_schema() AND table_name='drugs'"
         ).fetchall()
     }
     for name, sql_type in columns.items():

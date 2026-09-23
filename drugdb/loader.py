@@ -329,11 +329,17 @@ def _grls_workbooks(data, root):
 
 def _infer_grls_status(path):
     name = path.stem.lower().replace("_", " ")
-    if "не действует" in name or "архив" in name:
+    if "не действует" in name or "архив" in name or "аннулирован" in name:
         return "архив"
-    if "действует" in name:
+    if (
+        "действующий" in name
+        or "действует" in name
+        or "подтверждении государственной регистрации" in name
+        or "иностранных упаковках" in name
+        or "правилам еаэс" in name
+    ):
         return "действует"
-    return None
+    return "неизвестно"
 
 
 def load_grls(data):

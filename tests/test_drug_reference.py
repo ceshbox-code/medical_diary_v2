@@ -47,9 +47,9 @@ class DrugReferenceTests(unittest.TestCase):
 
     def test_mdlp_csv_finds_header_after_metadata_line(self):
         data = (
-            "Дата публикации;2026-09-23\\n"
-            "GTIN;Номер регистрационного удостоверения;Описание упаковки\\n"
-            "04601234567893;ЛП-000001;таблетки 10 шт\\n"
+            "Дата публикации;2026-09-23\n"
+            "GTIN;Номер регистрационного удостоверения;Описание упаковки\n"
+            "04601234567893;ЛП-000001;таблетки 10 шт\n"
         ).encode("utf-8")
         headers, reader = _csv_reader(data)
         self.assertEqual(headers[0], "GTIN")
@@ -57,8 +57,8 @@ class DrugReferenceTests(unittest.TestCase):
 
     def test_mdlp_csv_supports_cp1251(self):
         data = (
-            "GTIN;Номер РУ\\n"
-            "04601234567893;ЛП-000001\\n"
+            "GTIN;Номер РУ\n"
+            "04601234567893;ЛП-000001\n"
         ).encode("cp1251")
         headers, reader = _csv_reader(data)
         self.assertEqual(headers[1], "Номер РУ")

@@ -218,6 +218,21 @@ def _parse_bool(value):
     return None
 
 
+def _record_check(conn, source, status, error=None):
+    """Фиксирует даже проверки, при которых импорт не потребовался."""
+    conn.execute(
+        """
+        INSERT INTO drug_import_runs(
+            source, status, finished_at, records_seen,
+            records_loaded, records_skipped, error_text
+        )
+        VALUES(%s, %s, NOW(), 0, 0, 0, %s)
+        """,
+        (source, status, error),
+    )
+    conn.commit()
+
+
 def _start_run(conn, source):
     # Безопасная миграция для уже существующего PostgreSQL volume:
     # docker-entrypoint-initdb.d выполняется только при первом создании БД.

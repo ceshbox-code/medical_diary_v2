@@ -158,26 +158,13 @@ def _save_source_state(source, url, metadata):
 
 
 def _ensure_drug_columns(conn):
-    """Миграция расширенных полей ГРЛС для уже существующих БД."""
-    columns = {
-        "registration_date": "DATE",
-        "expiry_date": "DATE",
-        "cancellation_date": "DATE",
-        "production_stages": "TEXT",
-        "pharmacotherapeutic_group": "VARCHAR(500)",
-        "essential_drug": "BOOLEAN",
-        "contains_controlled_substances": "BOOLEAN",
-        "orphan_status": "VARCHAR(255)",
-    }
-    existing = {
-        row[0] for row in conn.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema=current_schema() AND table_name='drugs'"
-        ).fetchall()
-    }
-    for name, sql_type in columns.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE drugs ADD COLUMN {name} {sql_type}")
+    """Не добавляет расширенные поля ГРЛС в схему справочника.
+
+    В дневнике нужны только идентификационные данные препарата. Старые
+    расширенные колонки, если они уже есть в PostgreSQL volume, не удаляются
+    автоматически, чтобы не выполнять разрушающую миграцию.
+    """
+    return None
 
 
 def _parse_date(value):
@@ -381,7 +368,7 @@ def load_grls(data):
                                         skipped += 1
                                         continue
                                     values = {
-                                        k: _text(row[i], 500 if k in ("manufacturer", "holder", "production_stages") else 255)
+                                        k: _text(row[i], 500 if k == "manufacturer" else 255)
                                         if i is not None and i < len(row) else None
                                         for k, i in idx.items() if k != "reg_number"
                                     }
@@ -390,26 +377,14 @@ def load_grls(data):
                                         """
                                         INSERT INTO drugs(
                                             reg_number,trade_name,inn,dosage_form,dosage_value,
-                                            manufacturer,holder,registration_date,expiry_date,
-                                            cancellation_date,production_stages,pharmacotherapeutic_group,
-                                            essential_drug,contains_controlled_substances,orphan_status,
-                                            status,updated_at
+                                            manufacturer,status,updated_at
                                         )
-                                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                                        VALUES(%s,%s,%s,%s,%s,%s,%s,NOW())
                                         ON CONFLICT(reg_number) DO UPDATE SET
                                           trade_name=EXCLUDED.trade_name, inn=EXCLUDED.inn,
                                           dosage_form=EXCLUDED.dosage_form,
                                           dosage_value=EXCLUDED.dosage_value,
                                           manufacturer=EXCLUDED.manufacturer,
-                                          holder=EXCLUDED.holder,
-                                          registration_date=EXCLUDED.registration_date,
-                                          expiry_date=EXCLUDED.expiry_date,
-                                          cancellation_date=EXCLUDED.cancellation_date,
-                                          production_stages=EXCLUDED.production_stages,
-                                          pharmacotherapeutic_group=EXCLUDED.pharmacotherapeutic_group,
-                                          essential_drug=EXCLUDED.essential_drug,
-                                          contains_controlled_substances=EXCLUDED.contains_controlled_substances,
-                                          orphan_status=EXCLUDED.orphan_status,
                                           status=EXCLUDED.status,
                                           updated_at=NOW()
                                         """,

@@ -372,16 +372,24 @@ def api_medication_scan():
         mdlp = {"status": e.kind, "error": str(e)}
 
     drug = None
+    drug_reference = {"status": "disabled"}
     try:
-        from drug_reference import lookup_drug_by_gtin
+        from drug_reference import DrugReferenceAmbiguousError, lookup_drug_by_gtin
         drug = lookup_drug_by_gtin(parsed.gtin)
+        drug_reference = {"status": "found" if drug else "not_found"}
+    except DrugReferenceAmbiguousError:
+        # Не выбираем запись ГРЛС произвольно: один GTIN может быть связан
+        # с несколькими действующими регистрационными удостоверениями.
+        drug_reference = {"status": "ambiguous"}
     except Exception as e:
         print(f"[drugdb] scan lookup failed: {type(e).__name__}", flush=True)
+        drug_reference = {"status": "unavailable"}
 
     audit("scan_medication_marking", "medication_packages", existing["medication_id"] if existing else None,
           {"gtin": parsed.gtin, "has_existing": bool(existing), "mdlp_status": mdlp["status"],
-           "drug_reference_found": bool(drug)})
-    return jsonify(ok=True, source="chestny_znak", drug=drug, marking={
+           "drug_reference_status": drug_reference["status"]})
+    return jsonify(ok=True, source="chestny_znak", drug=drug,
+                   drug_reference=drug_reference, marking={
         "gtin": parsed.gtin,
         "serial_number": parsed.serial_number,
         "sgtin": parsed.sgtin,

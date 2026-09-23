@@ -101,16 +101,65 @@ def _normalise_gtin(v):
     return digits
 
 
-def _download(url):
+def _download(url, source=None):
     if not url:
         raise ValueError("URL выгрузки не задана")
-    r = requests.get(url, timeout=TIMEOUT, stream=True)
+
+    headers = {}
+    if source and DSN:
+        with psycopg.connect(DSN) as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS drug_source_state ("
+                "source VARCHAR(32) PRIMARY KEY, url TEXT NOT NULL, etag TEXT, "
+                "last_modified TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+            )
+            row = conn.execute(
+                "SELECT url, etag, last_modified FROM drug_source_state WHERE source=%s",
+                (source,),
+            ).fetchone()
+            if row and row[0] == url:
+                if row[1]:
+                    headers["If-None-Match"] = row[1]
+                if row[2]:
+                    headers["If-Modified-Since"] = row[2]
+
+    r = requests.get(url, headers=headers, timeout=TIMEOUT, stream=True)
+    if r.status_code == 304:
+        LOG.info("%s export is unchanged (HTTP 304)", source or "source")
+        return None, None
     r.raise_for_status()
     data = bytearray()
     for chunk in r.iter_content(1024 * 1024):
         if chunk:
             data.extend(chunk)
-    return bytes(data)
+    return bytes(data), {
+        "etag": r.headers.get("ETag"),
+        "last_modified": r.headers.get("Last-Modified"),
+    }
+
+
+def _save_source_state(source, url, metadata):
+    if not source or not DSN or not metadata:
+        return
+    etag = metadata.get("etag")
+    last_modified = metadata.get("last_modified")
+    if not etag and not last_modified:
+        return
+    with psycopg.connect(DSN) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS drug_source_state ("
+            "source VARCHAR(32) PRIMARY KEY, url TEXT NOT NULL, etag TEXT, "
+            "last_modified TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+        )
+        conn.execute(
+            "INSERT INTO drug_source_state(source,url,etag,last_modified) "
+            "VALUES(%s,%s,%s,%s) "
+            "ON CONFLICT(source) DO UPDATE SET "
+            "url=EXCLUDED.url, etag=EXCLUDED.etag, "
+            "last_modified=EXCLUDED.last_modified, updated_at=NOW()",
+            (source, url, etag, last_modified),
+        )
+        conn.commit()
 
 
 def _start_run(conn, source):
@@ -373,8 +422,17 @@ def main():
     args = p.parse_args()
     if not DSN:
         raise SystemExit("DRUG_DB_DSN is required")
-    data = Path(args.file).read_bytes() if args.file else _download(GRLS_URL if args.source == "grls" else MDLP_URL)
+    url = GRLS_URL if args.source == "grls" else MDLP_URL
+    if args.file:
+        data = Path(args.file).read_bytes()
+        metadata = None
+    else:
+        data, metadata = _download(url, args.source)
+        if data is None:
+            return
+
     result = load_grls(data) if args.source == "grls" else load_mdlp(data)
+    _save_source_state(args.source, url, metadata)
     LOG.info("%s import complete: seen=%s loaded=%s skipped=%s", args.source, *result)
 
 

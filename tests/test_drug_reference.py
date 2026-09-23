@@ -3,7 +3,12 @@ from datetime import datetime
 from unittest.mock import patch
 
 from drug_reference import DrugReferenceAmbiguousError, _normalise_gtin, lookup_drug_by_gtin
-from drugdb.loader import _csv_reader, _find_column, _normalise_gtin as loader_normalise_gtin
+from drugdb.loader import (
+    _csv_reader,
+    _find_column,
+    _normalise_gtin as loader_normalise_gtin,
+    _normalise_grls_status,
+)
 from drugdb import runner
 
 
@@ -18,6 +23,12 @@ class DrugReferenceTests(unittest.TestCase):
     def test_loader_and_api_use_same_gtin_rules(self):
         value = "04601234567893"
         self.assertEqual(loader_normalise_gtin(value), _normalise_gtin(value))
+
+    def test_grls_status_is_normalised_for_api_filter(self):
+        self.assertEqual(_normalise_grls_status("Действующий", "неизвестно"), "действует")
+        self.assertEqual(_normalise_grls_status("Действует на подтверждении государственной регистрации", "неизвестно"), "действует")
+        self.assertEqual(_normalise_grls_status("Аннулирован", "неизвестно"), "архив")
+        self.assertEqual(_normalise_grls_status("неизвестный статус", "неизвестно"), "неизвестно")
 
     def test_runner_does_not_require_explicit_mdlp_url(self):
         with patch.dict("os.environ", {}, clear=True):

@@ -47,7 +47,10 @@ def _clean(raw: str) -> str:
         raise MarkingCodeError("Некорректная длина кода маркировки")
     # Некоторые сканеры/камеры возвращают человекочитаемый AI-формат (01)... .
     value = value.replace("\\(", "(").replace("\\)", ")")
-    value = re.sub(r"\((?:01|10|11|17|21)\)", lambda m: m.group(0)[1:-1], value)
+    def _parenthesized_ai(match):
+        ai = match.group(1)
+        return ai if ai == "01" else GS + ai
+    value = re.sub(r"\((01|10|11|17|21)\)", _parenthesized_ai, value)
     return value
 
 

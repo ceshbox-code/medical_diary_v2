@@ -233,7 +233,33 @@ def _record_check(conn, source, status, error=None):
     conn.commit()
 
 
+def _recover_stale_runs(conn, source, max_age_minutes=180):
+    """Помечает зависшие import_run как ошибки после аварийного завершения."""
+    cur = conn.execute(
+        """
+        UPDATE drug_import_runs
+        SET finished_at=NOW(),
+            status='error',
+            error_text=COALESCE(error_text, 'stale running import recovered')
+        WHERE source=%s
+          AND status='running'
+          AND started_at < NOW() - (%s * INTERVAL '1 minute')
+        RETURNING id
+        """,
+        (source, max_age_minutes),
+    )
+    recovered = cur.fetchall()
+    if recovered:
+        LOG.warning(
+            "%s stale import run(s) recovered for source %s",
+            len(recovered),
+            source,
+        )
+    return len(recovered)
+
+
 def _start_run(conn, source):
+    _recover_stale_runs(conn, source)
     # Безопасная миграция для уже существующего PostgreSQL volume:
     # docker-entrypoint-initdb.d выполняется только при первом создании БД.
     conn.execute(

@@ -244,6 +244,7 @@ CREATE TABLE IF NOT EXISTS medication_packages (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   gtin TEXT NOT NULL,
   serial_number TEXT NOT NULL,
+  batch_number TEXT,
   sgtin TEXT NOT NULL,
   marking_code TEXT NOT NULL,
   status TEXT,
@@ -363,6 +364,7 @@ def init_db():
         "remaining_quantity": "REAL",
         "purchase_date": "TEXT",
         "expiry_date": "TEXT",
+        "batch_number": "TEXT",
     })
     ensure_columns("medication_intakes", {
         "intake_quantity": "REAL",

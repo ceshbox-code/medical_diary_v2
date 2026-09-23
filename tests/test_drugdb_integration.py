@@ -142,8 +142,11 @@ class DrugDbIntegrationTests(unittest.TestCase):
             with patch("drug_reference.DSN", DSN):
                 result = lookup_drug_by_gtin(self.GTIN)
             self.assertEqual(result["reg_number"], "ЛП-000001")
-            self.assertEqual(result["holder"], "ТестХолдер")
-            self.assertEqual(result["essential_drug"], True)
+            self.assertEqual(result["trade_name"], "ТестПрепарат")
+            self.assertEqual(result["inn"], "ТестМНН")
+            self.assertEqual(result["manufacturer"], "ТестФарм")
+            self.assertEqual(result["package_quantity"], 10)
+            self.assertEqual(result["package_unit"], "шт")
 
     def test_one_gtin_mapped_to_two_active_records_is_not_selected_arbitrarily(self):
         with patch.object(loader, "DSN", DSN):

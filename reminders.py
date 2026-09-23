@@ -268,8 +268,15 @@ def _med_stock(db, med_id):
     if not packages:
         return {"package_count": 0, "remaining_quantity": None, "unit": None, "expiry_date": None}
 
-    quantities = [p["package_quantity"] for p in packages if p["package_quantity"] is not None]
-    units = {p["package_unit"] for p in packages if p["package_unit"]}
+    # Остаток можно считать только если известны количество и единица
+    # для КАЖДОЙ упаковки. Иначе частичная сумма была бы ошибочно показана
+    # как полный остаток.
+    quantities = [p["package_quantity"] for p in packages]
+    units = {p["package_unit"] for p in packages}
+    all_quantities_known = all(
+        p["package_quantity"] is not None and bool(p["package_unit"])
+        for p in packages
+    )
     med = db.execute(
         "SELECT intake_quantity, intake_unit FROM medications WHERE id = ?",
         (med_id,),
@@ -277,7 +284,7 @@ def _med_stock(db, med_id):
     intake_qty = med["intake_quantity"] if med else None
     intake_unit = med["intake_unit"] if med else None
 
-    if not quantities or len(units) != 1:
+    if not all_quantities_known or not quantities or len(units) != 1:
         remaining = None
         unit = None
     else:

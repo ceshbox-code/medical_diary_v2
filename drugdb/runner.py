@@ -11,7 +11,10 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-try:\n    from .loader import main\nexcept ImportError:  # запуск как `python drugdb/runner.py`\n    from loader import main
+try:
+    from .loader import main
+except ImportError:  # запуск как `python drugdb/runner.py`
+    from loader import main
 
 LOG = logging.getLogger("drugdb.runner")
 logging.basicConfig(

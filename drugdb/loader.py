@@ -50,6 +50,14 @@ HEADER_ALIASES = {
         "держатель/владелец регистрационного удостоверения",
         "владелец регистрационного удостоверения", "holder",
     ],
+    "registration_date": ["дата регистрации", "registration_date"],
+    "expiry_date": ["дата окончания действия регистрационного удостоверения", "дата окончания действия", "expiry_date"],
+    "cancellation_date": ["дата аннулирования регистрационного удостоверения", "дата аннулирования", "cancellation_date"],
+    "production_stages": ["сведения о стадиях производства", "стадии производства", "production_stages"],
+    "pharmacotherapeutic_group": ["фармако-терапевтическая группа", "фармакотерапевтическая группа", "pharmacotherapeutic_group"],
+    "essential_drug": ["наличие лекарственного препарата в перечне жнвлп", "жнвлп", "essential_drug"],
+    "contains_controlled_substances": ["наличие в лекарственном препарате наркотических средств, психотропных веществ", "наркотических средств", "controlled_substances"],
+    "orphan_status": ["статус признания лекарственного препарата орфанным", "орфанный", "orphan_status"],
     "status": ["состояние", "статус", "status"],
 }
 
@@ -162,6 +170,52 @@ def _save_source_state(source, url, metadata):
         conn.commit()
 
 
+def _ensure_drug_columns(conn):
+    """Миграция расширенных полей ГРЛС для уже существующих БД."""
+    columns = {
+        "registration_date": "DATE",
+        "expiry_date": "DATE",
+        "cancellation_date": "DATE",
+        "production_stages": "TEXT",
+        "pharmacotherapeutic_group": "VARCHAR(500)",
+        "essential_drug": "BOOLEAN",
+        "contains_controlled_substances": "BOOLEAN",
+        "orphan_status": "VARCHAR(255)",
+    }
+    existing = {
+        row[0] for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name='drugs'"
+        ).fetchall()
+    }
+    for name, sql_type in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE drugs ADD COLUMN {name} {sql_type}")
+
+
+def _parse_date(value):
+    value = _text(value, 32)
+    if not value:
+        return None
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            pass
+    raise ValueError(f"Некорректная дата ГРЛС: {value}")
+
+
+def _parse_bool(value):
+    value = _text(value, 64)
+    if not value:
+        return None
+    normalized = value.lower().replace("ё", "е")
+    if normalized in {"да", "есть", "имеется", "1", "true", "yes", "присутствует"}:
+        return True
+    if normalized in {"нет", "отсутствует", "0", "false", "no"}:
+        return False
+    return None
+
+
 def _start_run(conn, source):
     # Безопасная миграция для уже существующего PostgreSQL volume:
     # docker-entrypoint-initdb.d выполняется только при первом создании БД.
@@ -246,6 +300,8 @@ def load_grls(data):
         root = Path(td)
         paths = _grls_workbooks(data, root)
         with psycopg.connect(DSN) as conn:
+            _ensure_drug_columns(conn)
+            conn.commit()
             run_id = _start_run(conn, "grls")
             try:
                 for xlsx in paths:
@@ -272,7 +328,7 @@ def load_grls(data):
                                         skipped += 1
                                         continue
                                     values = {
-                                        k: _text(row[i], 500 if k in ("manufacturer", "holder") else 255)
+                                        k: _text(row[i], 500 if k in ("manufacturer", "holder", "production_stages") else 255)
                                         if i is not None and i < len(row) else None
                                         for k, i in idx.items() if k != "reg_number"
                                     }
@@ -281,21 +337,41 @@ def load_grls(data):
                                         """
                                         INSERT INTO drugs(
                                             reg_number,trade_name,inn,dosage_form,dosage_value,
-                                            manufacturer,holder,status,updated_at
+                                            manufacturer,holder,registration_date,expiry_date,
+                                            cancellation_date,production_stages,pharmacotherapeutic_group,
+                                            essential_drug,contains_controlled_substances,orphan_status,
+                                            status,updated_at
                                         )
-                                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                                         ON CONFLICT(reg_number) DO UPDATE SET
                                           trade_name=EXCLUDED.trade_name, inn=EXCLUDED.inn,
                                           dosage_form=EXCLUDED.dosage_form,
                                           dosage_value=EXCLUDED.dosage_value,
                                           manufacturer=EXCLUDED.manufacturer,
                                           holder=EXCLUDED.holder,
+                                          registration_date=EXCLUDED.registration_date,
+                                          expiry_date=EXCLUDED.expiry_date,
+                                          cancellation_date=EXCLUDED.cancellation_date,
+                                          production_stages=EXCLUDED.production_stages,
+                                          pharmacotherapeutic_group=EXCLUDED.pharmacotherapeutic_group,
+                                          essential_drug=EXCLUDED.essential_drug,
+                                          contains_controlled_substances=EXCLUDED.contains_controlled_substances,
+                                          orphan_status=EXCLUDED.orphan_status,
                                           status=EXCLUDED.status,
                                           updated_at=NOW()
                                         """,
-                                        (reg, name, values.get("inn"), values.get("dosage_form"),
-                                         values.get("dosage_value"), values.get("manufacturer"),
-                                         values.get("holder"), status),
+                                        (
+                                            reg, name, values.get("inn"), values.get("dosage_form"),
+                                            values.get("dosage_value"), values.get("manufacturer"),
+                                            values.get("holder"), _parse_date(values.get("registration_date")),
+                                            _parse_date(values.get("expiry_date")),
+                                            _parse_date(values.get("cancellation_date")),
+                                            values.get("production_stages"),
+                                            values.get("pharmacotherapeutic_group"),
+                                            _parse_bool(values.get("essential_drug")),
+                                            _parse_bool(values.get("contains_controlled_substances")),
+                                            values.get("orphan_status"), status,
+                                        ),
                                     )
                                     loaded += 1
                                     if loaded % BATCH_SIZE == 0:

@@ -687,6 +687,10 @@
         $('med-reg-number').value = out.drug.reg_number || '';
         $('med-dose').value = '';
         $('med-unit').value = UNITS.indexOf('мг') >= 0 ? 'мг' : UNITS[0];
+        if (out.drug.package_quantity !== null && out.drug.package_quantity !== undefined) {
+          $('med-package-quantity').value = fmtNum(out.drug.package_quantity);
+          if (out.drug.package_unit) { $('med-package-unit').value = out.drug.package_unit; }
+        }
         $('med-instr').value = '';
         $('med-scan-status').textContent = 'Данные препарата найдены в локальном справочнике. Проверьте карточку и дополните данные упаковки.';
       } else if (out.drug_reference && out.drug_reference.status === 'ambiguous') {

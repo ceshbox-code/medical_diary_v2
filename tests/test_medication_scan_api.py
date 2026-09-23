@@ -7,6 +7,12 @@ from unittest.mock import patch
 _TEST_DB = os.path.join(tempfile.gettempdir(), "medical_diary_scan_api_test.db")
 os.environ["DATABASE_PATH"] = _TEST_DB
 
+# В полном unittest-наборе app/db могут быть импортированы раньше этого
+# модуля. В таком случае одного DATABASE_PATH недостаточно: db.DATABASE
+# уже вычислен при импорте. Переназначаем фактический путь модуля до тестов.
+import db as db_module
+db_module.DATABASE = _TEST_DB
+
 from app import app
 from drug_reference import DrugReferenceAmbiguousError
 

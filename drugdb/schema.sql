@@ -53,3 +53,14 @@ CREATE TABLE IF NOT EXISTS drug_gtin_pending (
 
 CREATE INDEX IF NOT EXISTS idx_drug_gtin_pending_reg
     ON drug_gtin_pending(reg_number);
+
+
+-- HTTP validators последней успешно импортированной выгрузки.
+-- Позволяют MDЛП/ГРЛС не скачивать и не разбирать неизменившийся файл.
+CREATE TABLE IF NOT EXISTS drug_source_state (
+    source VARCHAR(32) PRIMARY KEY,
+    url TEXT NOT NULL,
+    etag TEXT,
+    last_modified TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

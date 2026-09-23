@@ -78,6 +78,37 @@ class DrugDbIntegrationTests(unittest.TestCase):
             cur.execute(f"SELECT COUNT(*) FROM {table}")
             return cur.fetchone()[0]
 
+    def test_stale_running_import_is_recovered(self):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO drug_import_runs(
+                    source, started_at, status
+                )
+                VALUES('mdlp', NOW() - INTERVAL '4 hours', 'running')
+                """
+            )
+        self.conn.commit()
+
+        with patch.object(loader, "DSN", DSN):
+            loader.load_mdlp(self._mdlp_csv("ЛП-000001"))
+
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT status, finished_at, error_text
+                FROM drug_import_runs
+                WHERE source='mdlp'
+                ORDER BY id
+                """
+            )
+            rows = cur.fetchall()
+
+        self.assertEqual(rows[0][0], "error")
+        self.assertIsNotNone(rows[0][1])
+        self.assertEqual(rows[0][2], "stale running import recovered")
+        self.assertEqual(rows[1][0], "success")
+
     def test_mdlp_before_grls_is_reconciled_and_idempotent(self):
         with patch.object(loader, "DSN", DSN):
             self.assertEqual(loader.load_mdlp(self._mdlp_csv("ЛП-000001")), (1, 0, 1))

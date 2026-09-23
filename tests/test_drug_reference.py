@@ -3,7 +3,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from drug_reference import _normalise_gtin
-from drugdb.loader import _find_column, _normalise_gtin as loader_normalise_gtin
+from drugdb.loader import _csv_reader, _find_column, _normalise_gtin as loader_normalise_gtin
 from drugdb import runner
 
 
@@ -44,6 +44,25 @@ class DrugReferenceTests(unittest.TestCase):
         ), patch.object(runner, "RUN_MINUTE", 0):
             now = datetime.fromisoformat("2026-09-22T04:00:00+03:00")
             self.assertEqual(runner._seconds_until_next_grls(now), 23 * 3600)
+
+    def test_mdlp_csv_finds_header_after_metadata_line(self):
+        data = (
+            "Дата публикации;2026-09-23\\n"
+            "GTIN;Номер регистрационного удостоверения;Описание упаковки\\n"
+            "04601234567893;ЛП-000001;таблетки 10 шт\\n"
+        ).encode("utf-8")
+        headers, reader = _csv_reader(data)
+        self.assertEqual(headers[0], "GTIN")
+        self.assertEqual(next(reader)[0], "04601234567893")
+
+    def test_mdlp_csv_supports_cp1251(self):
+        data = (
+            "GTIN;Номер РУ\\n"
+            "04601234567893;ЛП-000001\\n"
+        ).encode("cp1251")
+        headers, reader = _csv_reader(data)
+        self.assertEqual(headers[1], "Номер РУ")
+        self.assertEqual(next(reader)[1], "ЛП-000001")
 
     def test_mdlp_registration_aliases(self):
         headers = ["GTIN", "Номер регистрационного удостоверения", "Описание упаковки"]

@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 from unittest.mock import patch
 
-from drug_reference import _normalise_gtin
+from drug_reference import DrugReferenceAmbiguousError, _normalise_gtin, lookup_drug_by_gtin
 from drugdb.loader import _csv_reader, _find_column, _normalise_gtin as loader_normalise_gtin
 from drugdb import runner
 
@@ -63,6 +63,31 @@ class DrugReferenceTests(unittest.TestCase):
         headers, reader = _csv_reader(data)
         self.assertEqual(headers[1], "Номер РУ")
         self.assertEqual(next(reader)[1], "ЛП-000001")
+
+    def test_lookup_rejects_ambiguous_active_gtin(self):
+        class Cursor:
+            def execute(self, *args):
+                return self
+
+            def fetchall(self):
+                return [
+                    ("A", "I", "форма", "10 мг", "Производитель 1", "Держатель 1", "ЛП-1", "уп. 10"),
+                    ("A", "I", "форма", "10 мг", "Производитель 2", "Держатель 2", "ЛП-2", "уп. 10"),
+                ]
+
+        class Conn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def execute(self, *args):
+                return Cursor()
+
+        with patch("drug_reference._connection", return_value=Conn()):
+            with self.assertRaises(DrugReferenceAmbiguousError):
+                lookup_drug_by_gtin("04601234567893")
 
     def test_mdlp_registration_aliases(self):
         headers = ["GTIN", "Номер регистрационного удостоверения", "Описание упаковки"]

@@ -55,12 +55,12 @@ HEADER_ALIASES = {
 
 GTIN_ALIASES = ["gtin", "гтин", "код gtin", "gtin товара", "гтин товара"]
 REG_ALIASES = [
-    "номер ру", "номер регистрационного удостоверения",
+    "номер ру", "номер р.у.", "номер р/у", "№ ру", "номер регистрационного удостоверения",
     "регистрационный номер", "reg_number", "номер регистрации",
     "регистрационное удостоверение", "registration number",
     "registration_number", "ru number", "ru_number",
 ]
-PACKAGE_ALIASES = ["описание упаковки", "упаковка", "характеристика упаковки", "package_desc", "package description"]
+PACKAGE_ALIASES = ["описание упаковки", "описание потребительской упаковки", "упаковка", "характеристика упаковки", "package_desc", "package description"]
 
 
 def _norm_header(v):
@@ -314,23 +314,51 @@ def load_grls(data):
                 raise
     return seen, loaded, skipped
 
+def _decode_mdlp(data):
+    """Декодирует CSV без потери русских названий колонок."""
+    for encoding in ("utf-8-sig", "cp1251"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8-sig", errors="replace")
+
+
+def _csv_reader(data):
+    """Возвращает reader и найденную строку заголовка МДЛП."""
+    text = _decode_mdlp(data)
+    sample = text[:8192]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=";,\t")
+    except csv.Error:
+        dialect = csv.excel
+        dialect.delimiter = ";"
+
+    rows = csv.reader(io.StringIO(text), dialect)
+    headers = None
+    for row in rows:
+        if not any(str(value or "").strip() for value in row):
+            continue
+        if _find_column(row, GTIN_ALIASES) is not None and _find_column(row, REG_ALIASES) is not None:
+            headers = row
+            break
+
+    if headers is None:
+        raise ValueError("В CSV МДЛП не найдены заголовки GTIN и номера РУ")
+    return headers, rows
+
+
 def load_mdlp(data):
-    """Загружает CSV МДЛП GTIN↔РУ. Поддерживает BOM, ; и , разделители."""
+    """Загружает CSV МДЛП GTIN↔РУ.
+
+    Поддерживает BOM, UTF-8/CP1251, разделители ;/,/TAB и служебные строки
+    перед заголовком.
+    """
     seen = loaded = skipped = 0
     with psycopg.connect(DSN) as conn:
         run_id = _start_run(conn, "mdlp")
         try:
-            text = data.decode("utf-8-sig", errors="replace")
-            sample = text[:8192]
-            try:
-                dialect = csv.Sniffer().sniff(sample, delimiters=";,\t")
-            except csv.Error:
-                dialect = csv.excel
-                dialect.delimiter = ";"
-            reader = csv.reader(io.StringIO(text), dialect)
-            headers = next(reader, None)
-            if not headers:
-                raise ValueError("Пустой CSV МДЛП")
+            headers, reader = _csv_reader(data)
             gtin_i = _find_column(headers, GTIN_ALIASES)
             reg_i = _find_column(headers, REG_ALIASES)
             package_i = _find_column(headers, PACKAGE_ALIASES)

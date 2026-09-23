@@ -2,7 +2,12 @@ import unittest
 from datetime import datetime
 from unittest.mock import patch
 
-from drug_reference import (\n    DrugReferenceAmbiguousError, _normalise_gtin, lookup_drug_by_gtin,\n    _parse_package_quantity,\n)
+from drug_reference import (
+    DrugReferenceAmbiguousError,
+    _normalise_gtin,
+    lookup_drug_by_gtin,
+    _parse_package_quantity,
+)
 from drugdb.loader import (
     _csv_reader,
     _find_column,

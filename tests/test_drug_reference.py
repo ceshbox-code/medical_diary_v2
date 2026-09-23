@@ -89,6 +89,28 @@ class DrugReferenceTests(unittest.TestCase):
             with self.assertRaises(DrugReferenceAmbiguousError):
                 lookup_drug_by_gtin("04601234567893")
 
+    def test_record_check_persists_not_modified_or_error(self):
+        class Conn:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, sql, params):
+                self.calls.append((sql, params))
+
+            def commit(self):
+                self.committed = True
+
+        conn = Conn()
+        from drugdb.loader import _record_check
+
+        _record_check(conn, "mdlp", "not_modified")
+        self.assertIn(("mdlp", "not_modified", None), [call[1] for call in conn.calls])
+        self.assertTrue(conn.committed)
+
+        conn = Conn()
+        _record_check(conn, "grls", "error", "HTTP 503")
+        self.assertIn(("grls", "error", "HTTP 503"), [call[1] for call in conn.calls])
+
     def test_mdlp_registration_aliases(self):
         headers = ["GTIN", "Номер регистрационного удостоверения", "Описание упаковки"]
         self.assertEqual(_find_column(headers, ["gtin"]), 0)

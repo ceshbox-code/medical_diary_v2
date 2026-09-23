@@ -544,17 +544,27 @@ def main():
     if not DSN:
         raise SystemExit("DRUG_DB_DSN is required")
     url = GRLS_URL if args.source == "grls" else MDLP_URL
-    if args.file:
-        data = Path(args.file).read_bytes()
-        metadata = None
-    else:
-        data, metadata = _download(url, args.source)
-        if data is None:
-            return
+    try:
+        if args.file:
+            data = Path(args.file).read_bytes()
+            metadata = None
+        else:
+            data, metadata = _download(url, args.source)
+            if data is None:
+                return
 
-    result = load_grls(data) if args.source == "grls" else load_mdlp(data)
-    _save_source_state(args.source, url, metadata)
-    LOG.info("%s import complete: seen=%s loaded=%s skipped=%s", args.source, *result)
+        result = load_grls(data) if args.source == "grls" else load_mdlp(data)
+        _save_source_state(args.source, url, metadata)
+        LOG.info("%s import complete: seen=%s loaded=%s skipped=%s", args.source, *result)
+    except Exception as exc:
+        # Ошибка скачивания возникает до создания import_run внутри load_*.
+        # Фиксируем её отдельно, чтобы ни одна проверка источника не терялась.
+        try:
+            with psycopg.connect(DSN) as conn:
+                _record_check(conn, args.source, "error", str(exc)[:4000])
+        except Exception:
+            LOG.exception("failed to persist %s source error", args.source)
+        raise
 
 
 if __name__ == "__main__":

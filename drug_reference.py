@@ -8,7 +8,7 @@ import re
 from flask import Blueprint, jsonify
 
 from mdlp_reference import lookup_gtin
-from security import audit, login_required
+from db import get_db\nfrom security import audit, login_required
 
 drug_reference_bp = Blueprint("drug_reference", __name__)
 
@@ -66,8 +66,47 @@ def _parse_package_quantity(package_desc):
     return None, None
 
 
-def lookup_drug_by_gtin(gtin):
+def lookup_drug_by_gtin(gtin, user_id=None):
     gtin = _normalise_gtin(gtin)
+
+    if user_id is not None:
+        override = get_db().execute(
+            "SELECT name, mnn, dosage_form, manufacturer, reg_number, dose_value, "
+            "dose_unit, intake_quantity, intake_unit, package_quantity, package_unit "
+            "FROM medication_barcodes WHERE user_id = ? AND gtin = ? LIMIT 1",
+            (user_id, gtin),
+        ).fetchone()
+        if override:
+            return {
+                "gtin": gtin,
+                "trade_name": override["name"],
+                "mnn": override["mnn"],
+                "inn": override["mnn"],
+                "organization_inn": None,
+                "description": None,
+                "dosage_form": override["dosage_form"],
+                "dosage_form_normalized": override["dosage_form"],
+                "dosage_value": None,
+                "mass_volume_name": None,
+                "manufacturer": override["manufacturer"],
+                "manufacturer_country": None,
+                "reg_number": override["reg_number"],
+                "reg_date": None,
+                "reg_holder": None,
+                "reg_status": "пользовательская запись",
+                "gnvlp": None,
+                "narcotic": None,
+                "is_vzn_drug": None,
+                "package_desc": None,
+                "package_quantity": override["package_quantity"],
+                "package_unit": override["package_unit"],
+                "intake_quantity": override["intake_quantity"],
+                "intake_unit": override["intake_unit"],
+                "dose_value_user": override["dose_value"],
+                "dose_unit": override["dose_unit"],
+                "source": "user_override",
+            }
+
     try:
         result = lookup_gtin(gtin)
     except Exception as exc:
@@ -77,9 +116,8 @@ def lookup_drug_by_gtin(gtin):
 
     package_quantity, package_unit = _parse_package_quantity(result["package_desc"])
 
-    # Для совместимости API поле inn продолжает содержать МНН, потому что
-    # именно так оно называется в текущей карточке лекарства. В исходном CSV
-    # поле inn — ИНН организации, поэтому его нельзя подставлять в inn.
+    # В текущем API поле inn исторически означает МНН. В исходном MDLP CSV
+    # одноимённое поле inn — ИНН организации, поэтому оно не переносится сюда.
     return {
         "gtin": result["gtin"],
         "trade_name": result["trade_name"],
@@ -103,6 +141,7 @@ def lookup_drug_by_gtin(gtin):
         "package_desc": result["package_desc"],
         "package_quantity": package_quantity,
         "package_unit": package_unit,
+        "source": "mdlp_reference",
     }
 
 
@@ -115,7 +154,7 @@ def drug_by_gtin(gtin):
         return jsonify(error=str(exc)), 400
 
     try:
-        result = lookup_drug_by_gtin(gtin)
+        result = lookup_drug_by_gtin(gtin, user_id=__import__("flask").session["user_id"])
     except DrugReferenceUnavailableError:
         print("[mdlp-reference] lookup failed", flush=True)
         return jsonify(

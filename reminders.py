@@ -353,7 +353,7 @@ def _get_med(db, med_id):
 @reminders_bp.post("/api/medications/scan")
 @login_required
 def api_medication_scan():
-    """Разбирает код Data Matrix локально. MDLP здесь намеренно не вызывается."""
+    """Разбирает Data Matrix локально и ищет GTIN в локальном справочнике МДЛП."""
     data = _json_body()
     if data is None:
         return _bad_request()
@@ -369,43 +369,41 @@ def api_medication_scan():
         (session["user_id"], parsed.sgtin),
     ).fetchone()
 
-    mdlp = None
-    try:
-        from mdlp_client import MDLPClient, MDLPError
-        entry = MDLPClient().find_public_sgtin(parsed.sgtin)
-        mdlp = {"status": "found" if entry else "not_found", "entry": entry}
-    except MDLPError as e:
-        # Распознавание Data Matrix не теряем, даже если MDLP временно недоступен.
-        mdlp = {"status": e.kind, "error": str(e)}
-
     drug = None
     drug_reference = {"status": "disabled"}
     try:
-        from drug_reference import DrugReferenceAmbiguousError, lookup_drug_by_gtin
+        from drug_reference import DrugReferenceUnavailableError, lookup_drug_by_gtin
         drug = lookup_drug_by_gtin(parsed.gtin)
         drug_reference = {"status": "found" if drug else "not_found"}
-    except DrugReferenceAmbiguousError:
-        # Не выбираем запись ГРЛС произвольно: один GTIN может быть связан
-        # с несколькими действующими регистрационными удостоверениями.
-        drug_reference = {"status": "ambiguous"}
+    except DrugReferenceUnavailableError:
+        drug_reference = {"status": "unavailable"}
     except Exception as e:
-        print(f"[drugdb] scan lookup failed: {type(e).__name__}", flush=True)
+        print(f"[mdlp-reference] scan lookup failed: {type(e).__name__}", flush=True)
         drug_reference = {"status": "unavailable"}
 
-    audit("scan_medication_marking", "medication_packages", existing["medication_id"] if existing else None,
-          {"gtin": parsed.gtin, "has_existing": bool(existing), "mdlp_status": mdlp["status"],
-           "drug_reference_status": drug_reference["status"]})
-    return jsonify(ok=True, source="chestny_znak", drug=drug,
-                   drug_reference=drug_reference, marking={
-        "gtin": parsed.gtin,
-        "serial_number": parsed.serial_number,
-        "sgtin": parsed.sgtin,
-        "raw": parsed.raw,
-        "batch_number": parsed.batch_number,
-        "expiry_date": parsed.expiry_date,
-        "production_date": parsed.production_date,
-        "already_registered": bool(existing),
-    }, mdlp=mdlp)
+    audit(
+        "scan_medication_marking",
+        "medication_packages",
+        existing["medication_id"] if existing else None,
+        {"gtin": parsed.gtin, "has_existing": bool(existing),
+         "drug_reference_status": drug_reference["status"]},
+    )
+    return jsonify(
+        ok=True,
+        source="chestny_znak",
+        drug=drug,
+        drug_reference=drug_reference,
+        marking={
+            "gtin": parsed.gtin,
+            "serial_number": parsed.serial_number,
+            "sgtin": parsed.sgtin,
+            "raw": parsed.raw,
+            "batch_number": parsed.batch_number,
+            "expiry_date": parsed.expiry_date,
+            "production_date": parsed.production_date,
+            "already_registered": bool(existing),
+        },
+    )
 
 @reminders_bp.get("/api/medications")
 @login_required

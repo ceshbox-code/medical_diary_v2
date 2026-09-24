@@ -349,7 +349,7 @@ def _get_med(db, med_id):
 
 
 def _save_gtin_override(db, med_id, fields, package_quantity=None, package_unit=None):
-    """Сохраняет пользовательскую карточку как override для GTIN."""
+    """Сохраняет только фактическое пользовательское отличие от публичного GTIN."""
     package = db.execute(
         "SELECT gtin FROM medication_packages WHERE medication_id = ? "
         "ORDER BY id DESC LIMIT 1",
@@ -357,6 +357,33 @@ def _save_gtin_override(db, med_id, fields, package_quantity=None, package_unit=
     ).fetchone()
     if not package:
         return
+
+    gtin = package["gtin"]
+    public = None
+    try:
+        from drug_reference import lookup_drug_by_gtin
+        public = lookup_drug_by_gtin(gtin, user_id=None)
+    except Exception:
+        # Если публичный справочник недоступен, пользовательские данные всё
+        # равно должны сохраняться и иметь приоритет при следующем сканировании.
+        pass
+
+    if public:
+        same = (
+            fields["name"] == public.get("trade_name")
+            and fields["inn"] == public.get("mnn")
+            and fields["dosage_form"] == public.get("dosage_form")
+            and fields["manufacturer"] == public.get("manufacturer")
+            and fields["reg_number"] == public.get("reg_number")
+            and package_quantity == public.get("package_quantity")
+            and package_unit == public.get("package_unit")
+        )
+        if same:
+            db.execute(
+                "DELETE FROM medication_barcodes WHERE user_id = ? AND gtin = ?",
+                (session["user_id"], gtin),
+            )
+            return
 
     db.execute(
         """INSERT INTO medication_barcodes(
@@ -373,14 +400,12 @@ def _save_gtin_override(db, med_id, fields, package_quantity=None, package_unit=
              intake_unit=excluded.intake_unit, package_quantity=excluded.package_quantity,
              package_unit=excluded.package_unit, updated_at=datetime('now')""",
         (
-            session["user_id"], package["gtin"], fields["name"], fields["inn"],
+            session["user_id"], gtin, fields["name"], fields["inn"],
             fields["dosage_form"], fields["manufacturer"], fields["reg_number"],
             fields["dose_value"], fields["dose_unit"], fields["intake_quantity"],
             fields["intake_unit"], package_quantity, package_unit,
         ),
     )
-
-
 
 
 @reminders_bp.post("/api/medications/scan")

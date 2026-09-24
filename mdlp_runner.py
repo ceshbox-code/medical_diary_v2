@@ -9,6 +9,7 @@ import os
 import time
 
 from mdlp_import import main
+from mdlp_reference import init_reference_db
 
 
 INTERVAL = max(3600, int(os.getenv("MDLP_UPDATE_INTERVAL_SECONDS", "604800")))
@@ -23,6 +24,7 @@ def run_once():
 
 
 def run_forever():
+    init_reference_db()
     if RUN_ON_START:
         run_once()
     while True:

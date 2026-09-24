@@ -8,7 +8,8 @@ import re
 from flask import Blueprint, jsonify, session
 
 from mdlp_reference import lookup_gtin
-from db import get_db\nfrom security import audit, login_required
+from db import get_db
+from security import audit, login_required
 
 drug_reference_bp = Blueprint("drug_reference", __name__)
 

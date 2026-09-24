@@ -51,11 +51,9 @@ class MDLPReferenceTests(unittest.TestCase):
             "reg_status": "Действующий",
         }
         self.assertEqual(import_csv(_csv([row]), self.path), 1)
-        result = lookup_gtin("01234567890128") if os.getenv("MDLP_REFERENCE_DB") == self.path else None
-        if result is None:
-            import mdlp_reference
-            with mock.patch.object(mdlp_reference, "REFERENCE_DB", self.path):
-                result = mdlp_reference.lookup_gtin("01234567890128")
+import mdlp_reference
+        with mock.patch.object(mdlp_reference, "REFERENCE_DB", self.path):
+            result = mdlp_reference.lookup_gtin("01234567890128")
         self.assertEqual(result["inn"], "СИЛДЕНАФИЛ")
         self.assertEqual(result["trade_name"], "Виагра")
         self.assertEqual(result["reg_holder"], "Холдер")
@@ -67,8 +65,7 @@ class MDLPReferenceTests(unittest.TestCase):
             import_csv(_csv([row, row]), self.path)
         import mdlp_reference
         with unittest.mock.patch.object(mdlp_reference, "REFERENCE_DB", self.path):
-            with self.assertRaises((sqlite3.OperationalError,)):
-                mdlp_reference.lookup_gtin("01234567890128")
+            self.assertIsNone(mdlp_reference.lookup_gtin("01234567890128"))
 
 
 if __name__ == "__main__":

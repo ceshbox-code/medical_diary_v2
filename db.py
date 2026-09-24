@@ -264,6 +264,32 @@ CREATE TABLE IF NOT EXISTS medication_packages (
 CREATE INDEX IF NOT EXISTS idx_medication_packages_medication ON medication_packages(medication_id);
 CREATE INDEX IF NOT EXISTS idx_medication_packages_gtin ON medication_packages(gtin);
 
+-- Пользовательские исправления справочника по GTIN. Эти данные принадлежат
+-- конкретному пользователю и имеют приоритет над общей публичной выгрузкой.
+CREATE TABLE IF NOT EXISTS medication_barcodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  gtin TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mnn TEXT,
+  dosage_form TEXT,
+  manufacturer TEXT,
+  reg_number TEXT,
+  dose_value REAL,
+  dose_unit TEXT,
+  intake_quantity REAL,
+  intake_unit TEXT,
+  package_quantity REAL,
+  package_unit TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, gtin),
+  CHECK ((dose_value IS NULL) = (dose_unit IS NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_medication_barcodes_user_gtin
+  ON medication_barcodes(user_id, gtin);
+
 -- Времена суток приёма (HH:MM). Одна строка на каждое время.
 CREATE TABLE IF NOT EXISTS medication_schedule (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

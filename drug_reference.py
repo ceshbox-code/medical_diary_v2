@@ -124,7 +124,7 @@ def lookup_drug_by_gtin(gtin, user_id=None):
         "trade_name": result["trade_name"],
         "mnn": result["inn"],
         "inn": result["inn"],
-        "organization_inn": None,
+        "organization_inn": result["organization_inn"],
         "description": result["description"],
         "dosage_form": result["dosage_form"],
         "dosage_form_normalized": result["dosage_form_normalized"],

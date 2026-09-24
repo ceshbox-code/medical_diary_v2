@@ -5,6 +5,9 @@ on:
     branches: ["main", "feature/**"]
   pull_request:
 
+# CI runs on every push to main and feature branches.
+# Keep the test database isolated from the runner filesystem permissions.
+
 jobs:
   python-tests:
     runs-on: ubuntu-latest

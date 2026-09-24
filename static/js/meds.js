@@ -707,14 +707,15 @@
         (out.marking.batch_number ? ' · серия партии ' + out.marking.batch_number : '') +
         (out.marking.expiry_date ? ' · годен до ' + fmtDate(out.marking.expiry_date) : '') +
         (out.marking.already_registered ? ' · уже зарегистрирован' : '');
-      if (out.mdlp && out.mdlp.status === 'found') {
-        $('med-scan-status').textContent = 'MDLP: упаковка найдена в общедоступном реестре.';
-      } else if (out.mdlp && out.mdlp.status === 'not_found') {
-        $('med-scan-status').textContent = 'MDLP: упаковка не найдена в общедоступном реестре.';
-      } else if (out.mdlp && out.mdlp.status !== 'disabled') {
-        $('med-scan-status').textContent = 'Код распознан; MDLP сейчас недоступен, можно продолжить вручную.';
-      } else {
-        $('med-scan-status').textContent = 'Код Честного знака распознан.';
+      if (out.drug_reference && out.drug_reference.status === 'found') {
+        var sourceHint = out.drug && out.drug.source === 'user_override'
+          ? 'Использованы ваши сохранённые исправления для этого GTIN.'
+          : 'Данные найдены в локальном справочнике МДЛП.';
+        $('med-scan-status').textContent = sourceHint + ' Проверьте карточку перед сохранением.';
+      } else if (out.drug_reference && out.drug_reference.status === 'unavailable') {
+        $('med-scan-status').textContent = 'Локальный справочник временно недоступен. Код распознан, данные препарата можно заполнить вручную.';
+      } else if (out.drug_reference && out.drug_reference.status === 'not_found') {
+        $('med-scan-status').textContent = 'GTIN не найден в локальном справочнике. Данные можно заполнить вручную.';
       }
       if (out.marking.already_registered) {
         setMsg('med-scan-msg', 'Эта упаковка уже есть в дневнике. Создайте другую запись или используйте существующую.', false);

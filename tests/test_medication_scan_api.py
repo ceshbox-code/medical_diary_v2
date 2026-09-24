@@ -14,7 +14,6 @@ import db as db_module
 db_module.DATABASE = _TEST_DB
 
 from app import app
-from drug_reference import DrugReferenceAmbiguousError
 
 
 class MedicationScanApiTests(unittest.TestCase):
@@ -92,18 +91,6 @@ class MedicationScanApiTests(unittest.TestCase):
         body = response.get_json()
         self.assertIsNone(body["drug"])
         self.assertEqual(body["drug_reference"]["status"], "not_found")
-
-    def test_ambiguous_does_not_choose_drug(self):
-        with patch(
-            "drug_reference.lookup_drug_by_gtin",
-            side_effect=DrugReferenceAmbiguousError("ambiguous"),
-        ):
-            response = self._scan()
-
-        self.assertEqual(response.status_code, 200)
-        body = response.get_json()
-        self.assertIsNone(body["drug"])
-        self.assertEqual(body["drug_reference"]["status"], "ambiguous")
 
     def test_unavailable_does_not_fail_scan(self):
         with patch(

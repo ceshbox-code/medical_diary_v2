@@ -31,6 +31,23 @@ class MedicationScanApiTests(unittest.TestCase):
                 user_id INTEGER NOT NULL,
                 medication_id INTEGER
             );
+            CREATE TABLE medication_barcodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                gtin TEXT NOT NULL,
+                name TEXT NOT NULL,
+                mnn TEXT,
+                dosage_form TEXT,
+                manufacturer TEXT,
+                reg_number TEXT,
+                dose_value REAL,
+                dose_unit TEXT,
+                intake_quantity REAL,
+                intake_unit TEXT,
+                package_quantity REAL,
+                package_unit TEXT,
+                UNIQUE(user_id, gtin)
+            );
             """
         )
         self.db.execute("INSERT INTO users(id, status) VALUES(1, 'active')")

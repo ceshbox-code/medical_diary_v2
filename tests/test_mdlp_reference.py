@@ -51,7 +51,7 @@ class MDLPReferenceTests(unittest.TestCase):
             "reg_status": "Действующий",
         }
         self.assertEqual(import_csv(_csv([row]), self.path), 1)
-import mdlp_reference
+        import mdlp_reference
         with mock.patch.object(mdlp_reference, "REFERENCE_DB", self.path):
             result = mdlp_reference.lookup_gtin("01234567890128")
         self.assertEqual(result["inn"], "СИЛДЕНАФИЛ")

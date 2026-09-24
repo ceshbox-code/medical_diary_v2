@@ -58,10 +58,6 @@ class MedicationScanApiTests(unittest.TestCase):
             patch("reminders.get_db", return_value=self.db),
             patch("security.get_db", return_value=self.db),
             patch("reminders.audit"),
-            patch(
-                "mdlp_client.MDLPClient.find_public_sgtin",
-                return_value=None,
-            ),
         ]
         for p in self.patches:
             p.start()

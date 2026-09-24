@@ -511,16 +511,11 @@ def api_medication_create():
             [(med_id, t) for t in times],
         )
         if marking:
-            mdlp_status = "not_checked"
+            # Проверка маркировки через внешний MDLP не выполняется при каждом
+            # сохранении. GTIN уже разрешён локальным справочником, а данные
+            # конкретной упаковки сохраняются как факт сканирования.
+            mdlp_status = "local_reference"
             mdlp_data = None
-            try:
-                from mdlp_client import MDLPClient, MDLPError
-                entry = MDLPClient().find_public_sgtin(marking.sgtin)
-                mdlp_status = "found" if entry else "not_found"
-                mdlp_data = entry
-            except MDLPError:
-                # Ошибка внешней системы не должна отменять локальное сохранение лекарства.
-                mdlp_status = "unavailable"
 
             db.execute(
                 "INSERT INTO medication_packages "

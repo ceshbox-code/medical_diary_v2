@@ -5,7 +5,7 @@
 """
 import re
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, session
 
 from mdlp_reference import lookup_gtin
 from db import get_db\nfrom security import audit, login_required
@@ -154,7 +154,7 @@ def drug_by_gtin(gtin):
         return jsonify(error=str(exc)), 400
 
     try:
-        result = lookup_drug_by_gtin(gtin, user_id=__import__("flask").session["user_id"])
+        result = lookup_drug_by_gtin(gtin, user_id=session["user_id"])
     except DrugReferenceUnavailableError:
         print("[mdlp-reference] lookup failed", flush=True)
         return jsonify(

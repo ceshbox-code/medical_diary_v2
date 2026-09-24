@@ -21,8 +21,7 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py backup.py reminders.py db.py security.py validators.py mdlp_parser.py mdlp_client.py drug_reference.py ./
-COPY drugdb ./drugdb
+COPY app.py backup.py reminders.py db.py security.py validators.py mdlp_parser.py mdlp_reference.py mdlp_import.py mdlp_runner.py drug_reference.py ./
 
 RUN mkdir -p /data /backups
 

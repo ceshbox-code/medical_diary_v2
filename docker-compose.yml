@@ -1,54 +1,32 @@
 services:
-  drug-db:
-    image: postgres:15-alpine
-    container_name: ${DRUG_DB_CONTAINER_NAME:-medical-diary-drug-db}
+  mdlp-updater:
+    build: .
+    container_name: ${MDLP_UPDATER_CONTAINER_NAME:-medical-diary-mdlp-updater}
     environment:
-      POSTGRES_DB: ${DRUG_DB_NAME:-medical_drugs}
-      POSTGRES_USER: ${DRUG_DB_USER:-medical_diary}
-      POSTGRES_PASSWORD: ${DRUG_DB_PASSWORD:?DRUG_DB_PASSWORD is required}
       TZ: ${TZ:-Europe/Moscow}
+      MDLP_REFERENCE_DB: /reference/mdlp_reference.db
+      MDLP_EXPORT_URL: ${MDLP_EXPORT_URL:-https://xn--80aaani3am7aog.xn--80ajghhoc2aj1c8b.xn--p1ai/bi/api/opendata/7731376812-MDLPGtins/data/latest}
+      MDLP_UPDATE_INTERVAL_SECONDS: ${MDLP_UPDATE_INTERVAL_SECONDS:-604800}
     restart: unless-stopped
     volumes:
-      - ./drugdb_data:/var/lib/postgresql/data
-      - ./drugdb/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DRUG_DB_USER:-medical_diary} -d ${DRUG_DB_NAME:-medical_drugs}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  drug-db-updater:
-    build: .
-    container_name: ${DRUG_DB_UPDATER_CONTAINER_NAME:-medical-diary-drug-db-updater}
-    environment:
-      TZ: ${TZ:-Europe/Moscow}
-      DRUG_DB_DSN: "host=drug-db port=5432 dbname=${DRUG_DB_NAME:-medical_drugs} user=${DRUG_DB_USER:-medical_diary} password=${DRUG_DB_PASSWORD}"
-      GRLS_EXPORT_URL: ${GRLS_EXPORT_URL:-}
-      MDLP_EXPORT_URL: ${MDLP_EXPORT_URL:-}
-      DRUGDB_UPDATE_INTERVAL_SECONDS: ${DRUGDB_UPDATE_INTERVAL_SECONDS:-86400}
-    depends_on:
-      drug-db:
-        condition: service_healthy
-    restart: unless-stopped
-    command: ["python", "/app/drugdb/runner.py"]
+      - ./mdlp_reference_data:/reference
+    command: ["python", "/app/mdlp_runner.py"]
 
   app:
     container_name: ${CONTAINER_NAME:-medical-diary-app}
     build: .
     environment:
       TZ: ${TZ:-Europe/Moscow}
-      DRUG_DB_DSN: "host=drug-db port=5432 dbname=${DRUG_DB_NAME:-medical_drugs} user=${DRUG_DB_USER:-medical_diary} password=${DRUG_DB_PASSWORD}"
+      MDLP_REFERENCE_DB: /reference/mdlp_reference.db
     restart: unless-stopped
     env_file:
       - .env
     ports:
       - "${HTTP_PORT:-8000}:8000"
-    depends_on:
-      drug-db:
-        condition: service_healthy
     volumes:
       - ./data:/data
       - ./backups:/backups
+      - ./mdlp_reference_data:/reference:ro
       - ./static:/app/static:ro
       - ./templates:/app/templates:ro
       - ./app.py:/app/app.py:ro
@@ -58,9 +36,8 @@ services:
       - ./security.py:/app/security.py:ro
       - ./reminders.py:/app/reminders.py:ro
       - ./mdlp_parser.py:/app/mdlp_parser.py:ro
-      - ./mdlp_client.py:/app/mdlp_client.py:ro
+      - ./mdlp_reference.py:/app/mdlp_reference.py:ro
       - ./drug_reference.py:/app/drug_reference.py:ro
-      - ./drugdb:/app/drugdb:ro
       - ./assessments.py:/app/assessments.py:ro
       - ./pdf_export.py:/app/pdf_export.py:ro
       - ./backup.py:/app/backup.py:ro

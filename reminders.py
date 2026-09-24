@@ -348,6 +348,39 @@ def _get_med(db, med_id):
     ).fetchone()
 
 
+def _save_gtin_override(db, med_id, fields, package_quantity=None, package_unit=None):
+    """Сохраняет пользовательскую карточку как override для GTIN."""
+    package = db.execute(
+        "SELECT gtin FROM medication_packages WHERE medication_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (med_id,),
+    ).fetchone()
+    if not package:
+        return
+
+    db.execute(
+        """INSERT INTO medication_barcodes(
+             user_id, gtin, name, mnn, dosage_form, manufacturer, reg_number,
+             dose_value, dose_unit, intake_quantity, intake_unit,
+             package_quantity, package_unit, updated_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(user_id, gtin) DO UPDATE SET
+             name=excluded.name, mnn=excluded.mnn,
+             dosage_form=excluded.dosage_form, manufacturer=excluded.manufacturer,
+             reg_number=excluded.reg_number, dose_value=excluded.dose_value,
+             dose_unit=excluded.dose_unit, intake_quantity=excluded.intake_quantity,
+             intake_unit=excluded.intake_unit, package_quantity=excluded.package_quantity,
+             package_unit=excluded.package_unit, updated_at=datetime('now')""",
+        (
+            session["user_id"], package["gtin"], fields["name"], fields["inn"],
+            fields["dosage_form"], fields["manufacturer"], fields["reg_number"],
+            fields["dose_value"], fields["dose_unit"], fields["intake_quantity"],
+            fields["intake_unit"], package_quantity, package_unit,
+        ),
+    )
+
+
 
 
 @reminders_bp.post("/api/medications/scan")
@@ -373,7 +406,7 @@ def api_medication_scan():
     drug_reference = {"status": "disabled"}
     try:
         from drug_reference import DrugReferenceUnavailableError, lookup_drug_by_gtin
-        drug = lookup_drug_by_gtin(parsed.gtin)
+        drug = lookup_drug_by_gtin(parsed.gtin, user_id=session["user_id"])
         drug_reference = {"status": "found" if drug else "not_found"}
     except DrugReferenceUnavailableError:
         drug_reference = {"status": "unavailable"}
@@ -499,6 +532,10 @@ def api_medication_create():
                  json.dumps(mdlp_data, ensure_ascii=False) if mdlp_data is not None else None,
                  package_quantity, package_unit, purchase_date, expiry_date),
             )
+            _save_gtin_override(
+                db, med_id, fields, package_quantity=package_quantity,
+                package_unit=package_unit,
+            )
         db.commit()
     except sqlite3.IntegrityError:
         db.rollback()
@@ -547,6 +584,17 @@ def api_medication_update(med_id):
         db.executemany(
             "INSERT INTO medication_schedule (medication_id, time_of_day) VALUES (?, ?)",
             [(med_id, t) for t in times],
+        )
+    package = db.execute(
+        "SELECT package_quantity, package_unit FROM medication_packages "
+        "WHERE medication_id = ? ORDER BY id DESC LIMIT 1",
+        (med_id,),
+    ).fetchone()
+    if package:
+        _save_gtin_override(
+            db, med_id, fields,
+            package_quantity=package["package_quantity"],
+            package_unit=package["package_unit"],
         )
     db.commit()
     audit("update_medication", "medications", med_id, {"fields": changed})

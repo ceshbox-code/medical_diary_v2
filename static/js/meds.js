@@ -31,7 +31,7 @@
     temperature: 'Измерить температуру', food: 'Записать приём пищи', custom: ''
   };
 
-  var state = { meds: [], reminders: [], schedule: null };
+  var state = { meds: [], reminders: [], schedule: null, marking: null };
   var loadSeq = 0;
 
   /* ------------------------------------------------------------ утилиты */
@@ -280,6 +280,14 @@
       var when = m.times.length ? m.times.join(', ') + ' · ' + fmtDayList(m.days) : 'без графика (по мере необходимости)';
       body.appendChild(h('div', 'med-sub', when));
       if (m.end_date) { body.appendChild(h('div', 'med-sub', 'до ' + fmtDate(m.end_date))); }
+      if (m.stock && m.stock.remaining_quantity !== null) {
+        body.appendChild(h('div', 'med-stock', 'Остаток: ' + fmtNum(m.stock.remaining_quantity) + ' ' + (m.stock.unit || '')));
+        if (m.stock.expiry_date) {
+          body.appendChild(h('div', 'med-sub', 'Срок годности ближайшей упаковки: ' + fmtDate(m.stock.expiry_date)));
+        }
+      } else if (m.stock && m.stock.package_count) {
+        body.appendChild(h('div', 'med-sub', 'Остаток: количество в упаковке не задано или единицы не совпадают'));
+      }
       if (!m.is_active) { body.appendChild(badge('skipped', 'Приостановлено')); }
       card.appendChild(body);
       var actions = h('div', 'med-actions');
@@ -469,15 +477,35 @@
   var medCtx = null;
 
   function openMedModal(med) {
-    medCtx = { id: med ? med.id : null, idem: med ? null : 'med-' + uuid() };
+    medCtx = { id: med ? med.id : null, idem: med ? null : 'med-' + uuid(), marking: null };
     $('med-modal-title').textContent = med ? 'Изменить лекарство' : 'Новое лекарство';
+    $('med-scan-status').textContent = '';
+    $('med-marking-preview').hidden = true;
+    $('med-marking-preview').textContent = '';
     $('med-name').value = med ? med.name : '';
+    $('med-inn').value = med && med.inn ? med.inn : '';
+    $('med-form').value = med && med.dosage_form ? med.dosage_form : '';
+    $('med-manufacturer').value = med && med.manufacturer ? med.manufacturer : '';
+    $('med-reg-number').value = med && med.reg_number ? med.reg_number : '';
     $('med-dose').value = med && med.dose_value !== null ? fmtNum(med.dose_value) : '';
     var unitSel = $('med-unit');
-    if (!unitSel.options.length) {
-      UNITS.forEach(function (u) { var o = h('option', null, u); o.value = u; unitSel.appendChild(o); });
-    }
-    unitSel.value = med && med.dose_unit ? med.dose_unit : UNITS[0];
+    var intakeUnitSel = $('med-intake-unit');
+    var packageUnitSel = $('med-package-unit');
+    [unitSel, intakeUnitSel, packageUnitSel].forEach(function (sel) {
+      if (!sel.options.length) {
+        UNITS.forEach(function (u) { var o = h('option', null, u); o.value = u; sel.appendChild(o); });
+      }
+    });
+    unitSel.value = med && med.dose_unit ? med.dose_unit : 'мг';
+    intakeUnitSel.value = med && med.intake_unit ? med.intake_unit : 'шт';
+    packageUnitSel.value = 'шт';
+    $('med-intake-quantity').value = med && med.intake_quantity !== null ? fmtNum(med.intake_quantity) : '';
+    $('med-package-quantity').value = '';
+    $('med-purchase-date').value = med ? '' : localDate();
+    $('med-expiry-date').value = '';
+    ['med-package-quantity', 'med-package-unit', 'med-purchase-date', 'med-expiry-date'].forEach(function (id) {
+      $(id).disabled = !!med;
+    });
     $('med-instr').value = med ? med.instructions : '';
     clear($('med-times'));
     (med ? med.times : ['08:00']).forEach(addTimeRow);
@@ -501,8 +529,14 @@
     if (!days.length) { setMsg('med-msg', 'Дни недели: выберите хотя бы один день', false); return; }
     var payload = {
       name: name,
+      inn: $('med-inn').value.trim(),
+      dosage_form: $('med-form').value.trim(),
+      manufacturer: $('med-manufacturer').value.trim(),
+      reg_number: $('med-reg-number').value.trim(),
       dose_value: doseRaw,
       dose_unit: doseRaw ? $('med-unit').value : '',
+      intake_quantity: $('med-intake-quantity').value.trim().replace(',', '.'),
+      intake_unit: $('med-intake-unit').value,
       instructions: $('med-instr').value.trim(),
       times: readTimes(),
       days: days,
@@ -511,6 +545,13 @@
       comment: $('med-comment').value.trim(),
       is_active: $('med-active').checked
     };
+    if (medCtx.marking) {
+      payload.marking = medCtx.marking;
+      payload.package_quantity = $('med-package-quantity').value.trim().replace(',', '.');
+      payload.package_unit = $('med-package-unit').value;
+      payload.purchase_date = $('med-purchase-date').value;
+      payload.expiry_date = $('med-expiry-date').value;
+    }
     var btn = $('med-save');
     btn.disabled = true;
     try {
@@ -604,6 +645,131 @@
     }
   }
 
+
+  /* -------------------------------------------- сканирование Data Matrix */
+
+  var scanStream = null;
+  var scanTimer = null;
+  var scanBusy = false;
+
+  function stopMedScanner() {
+    if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+    if (scanStream) {
+      scanStream.getTracks().forEach(function (track) { track.stop(); });
+      scanStream = null;
+    }
+    var video = $('med-scan-video');
+    if (video) { video.srcObject = null; }
+  }
+
+  function closeMedScanner() {
+    stopMedScanner();
+    $('med-scan-modal').hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  async function submitScannedCode(code) {
+    code = String(code || '').trim();
+    if (!code) { setMsg('med-scan-msg', 'Код не указан', false); return; }
+    if (code.length > 4096) { setMsg('med-scan-msg', 'Код слишком длинный', false); return; }
+    if (scanBusy) { return; }
+    scanBusy = true;
+    setMsg('med-scan-msg', 'Проверяю код…', true);
+    try {
+      var out = await api('POST', '/api/medications/scan', { code: code });
+      medCtx.marking = { raw: out.marking.raw };
+      $('med-expiry-date').value = out.marking.expiry_date || '';
+      if (out.drug) {
+        $('med-name').value = out.drug.trade_name || '';
+        $('med-inn').value = out.drug.inn || '';
+        $('med-form').value = out.drug.dosage_form || '';
+        $('med-manufacturer').value = out.drug.manufacturer || '';
+        $('med-reg-number').value = out.drug.reg_number || '';
+        $('med-dose').value = '';
+        $('med-unit').value = UNITS.indexOf('мг') >= 0 ? 'мг' : UNITS[0];
+        if (out.drug.package_quantity !== null && out.drug.package_quantity !== undefined) {
+          $('med-package-quantity').value = fmtNum(out.drug.package_quantity);
+          if (out.drug.package_unit) { $('med-package-unit').value = out.drug.package_unit; }
+        }
+        $('med-instr').value = '';
+        $('med-scan-status').textContent = 'Данные препарата найдены в локальном справочнике. Проверьте карточку и дополните данные упаковки.';
+      } else if (out.drug_reference && out.drug_reference.status === 'ambiguous') {
+        $('med-scan-status').textContent = 'Для этого GTIN найдено несколько действующих записей. Данные автоматически не подставлены — проверьте номер РУ и заполните карточку вручную.';
+      } else if (out.drug_reference && out.drug_reference.status === 'unavailable') {
+        $('med-scan-status').textContent = 'Локальный справочник временно недоступен. Код распознан, данные препарата можно заполнить вручную.';
+      } else {
+        $('med-scan-status').textContent = 'Препарат по GTIN в локальном справочнике не найден. Данные можно заполнить вручную.';
+      }
+      $('med-marking-preview').hidden = false;
+      $('med-marking-preview').textContent =
+        '✓ Код распознан · GTIN ' + out.marking.gtin +
+        ' · серия ' + out.marking.serial_number +
+        (out.marking.batch_number ? ' · серия партии ' + out.marking.batch_number : '') +
+        (out.marking.expiry_date ? ' · годен до ' + fmtDate(out.marking.expiry_date) : '') +
+        (out.marking.already_registered ? ' · уже зарегистрирован' : '');
+      if (out.drug_reference && out.drug_reference.status === 'found') {
+        var sourceHint = out.drug && out.drug.source === 'user_override'
+          ? 'Использованы ваши сохранённые исправления для этого GTIN.'
+          : 'Данные найдены в локальном справочнике МДЛП.';
+        $('med-scan-status').textContent = sourceHint + ' Проверьте карточку перед сохранением.';
+      } else if (out.drug_reference && out.drug_reference.status === 'unavailable') {
+        $('med-scan-status').textContent = 'Локальный справочник временно недоступен. Код распознан, данные препарата можно заполнить вручную.';
+      } else if (out.drug_reference && out.drug_reference.status === 'not_found') {
+        $('med-scan-status').textContent = 'GTIN не найден в локальном справочнике. Данные можно заполнить вручную.';
+      }
+      if (out.marking.already_registered) {
+        setMsg('med-scan-msg', 'Эта упаковка уже есть в дневнике. Создайте другую запись или используйте существующую.', false);
+        return;
+      }
+      setMsg('med-scan-msg', 'Код принят. Теперь заполните название лекарства и сохраните запись.', true);
+      closeMedScanner();
+    } catch (e) {
+      setMsg('med-scan-msg', e.message, false);
+    } finally {
+      scanBusy = false;
+    }
+  }
+
+  async function openMedScanner() {
+    $('med-scan-modal').hidden = false;
+    document.body.style.overflow = 'hidden';
+    setMsg('med-scan-msg', '', true);
+    $('med-scan-hint').textContent = 'Проверяю поддержку Data Matrix…';
+    if (!('BarcodeDetector' in window)) {
+      $('med-scan-hint').textContent = 'Автоматическое сканирование не поддерживается этим браузером. Вставьте строку Data Matrix ниже.';
+      return;
+    }
+    try {
+      var formats = await BarcodeDetector.getSupportedFormats();
+      if (formats.indexOf('data_matrix') === -1) {
+        $('med-scan-hint').textContent = 'Браузер не поддерживает Data Matrix. Вставьте строку кода вручную.';
+        return;
+      }
+      scanStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      var video = $('med-scan-video');
+      video.srcObject = scanStream;
+      await video.play();
+      $('med-scan-hint').textContent = 'Наведите заднюю камеру на Data Matrix. После распознавания камера будет остановлена.';
+      var detector = new BarcodeDetector({ formats: ['data_matrix'] });
+      scanTimer = setInterval(async function () {
+        if (scanBusy || video.readyState < 2 || !video.videoWidth) { return; }
+        try {
+          var codes = await detector.detect(video);
+          if (codes && codes.length && codes[0].rawValue) {
+            await submitScannedCode(codes[0].rawValue);
+          }
+        } catch (e) { /* следующий кадр */ }
+      }, 250);
+    } catch (e) {
+      stopMedScanner();
+      $('med-scan-hint').textContent = 'Не удалось открыть камеру. Проверьте разрешение камеры и HTTPS. Код можно вставить вручную.';
+      setMsg('med-scan-msg', 'Камера недоступна', false);
+    }
+  }
+
   /* -------------------------------------------------------------- история */
 
   async function loadHistory() {
@@ -638,6 +804,10 @@
   /* --------------------------------------------------------- привязка событий */
 
   $('med-add-btn').addEventListener('click', function () { openMedModal(null); });
+  $('med-scan-btn').addEventListener('click', openMedScanner);
+  $('med-scan-close').addEventListener('click', closeMedScanner);
+  $('med-scan-manual').addEventListener('click', function () { submitScannedCode($('med-scan-code').value); });
+  $('med-scan-modal').addEventListener('click', function (e) { if (e.target === this) { closeMedScanner(); } });
   $('rem-add-btn').addEventListener('click', function () { openRemModal(null); });
   $('med-time-add').addEventListener('click', function () { addTimeRow(''); });
   $('med-form').addEventListener('submit', saveMed);

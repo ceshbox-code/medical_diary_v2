@@ -26,6 +26,7 @@ CSRF-защита и заголовки безопасности действу�
 """
 
 import os
+import json
 import sqlite3
 from datetime import datetime, timedelta, date
 
@@ -164,9 +165,11 @@ def _merge_medication(data, cur):
     """Собирает итоговые значения полей лекарства: то, что пришло в data,
     поверх текущих значений cur (при создании cur = None)."""
     base = cur or {
-        "name": None, "dose_value": None, "dose_unit": None,
+        "name": None, "inn": None, "dosage_form": None, "manufacturer": None, "reg_number": None,
+        "dose_value": None, "dose_unit": None,
         "instructions": "", "start_date": None, "end_date": None,
         "is_active": 1, "comment": "", "days_mask": ALL_DAYS_MASK,
+        "intake_quantity": None, "intake_unit": None,
     }
     out = dict(base)
 
@@ -174,6 +177,21 @@ def _merge_medication(data, cur):
         out["name"] = _text(data["name"], 100, "Название", required=True)
     if not out["name"]:
         raise ValueError("Название: заполните поле")
+
+    for key, label, limit in (
+        ("inn", "МНН", 255),
+        ("dosage_form", "Лекарственная форма", 255),
+        ("manufacturer", "Производитель", 500),
+        ("reg_number", "Номер РУ", 50),
+    ):
+        if key in data:
+            out[key] = _text(data[key], limit, label)
+
+    if "intake_quantity" in data or "intake_unit" in data:
+        raw_q = data.get("intake_quantity", base.get("intake_quantity"))
+        raw_u = data.get("intake_unit", base.get("intake_unit"))
+        q, u = _parse_optional_quantity(raw_q, raw_u, "Количество за приём")
+        out["intake_quantity"], out["intake_unit"] = q, u
 
     if "dose_value" in data or "dose_unit" in data:
         raw_v = data.get("dose_value", base["dose_value"])
@@ -229,10 +247,76 @@ def _load_times(db, med_ids):
     return result
 
 
+def _parse_optional_quantity(value, unit, label):
+    if value is None or str(value).strip() == "":
+        if unit is not None and str(unit).strip():
+            raise ValueError(f"{label}: укажите количество")
+        return None, None
+    quantity = parse_float(value, 0.001, 100000000, label)
+    unit = str(unit or "").strip()
+    if unit not in MED_UNITS:
+        raise ValueError(f"{label}: выберите единицу ({', '.join(MED_UNITS)})")
+    return quantity, unit
+
+
+def _med_stock(db, med_id):
+    packages = db.execute(
+        "SELECT package_quantity, package_unit, purchase_date, expiry_date "
+        "FROM medication_packages WHERE medication_id = ? ORDER BY expiry_date IS NULL, expiry_date, id",
+        (med_id,),
+    ).fetchall()
+    if not packages:
+        return {"package_count": 0, "remaining_quantity": None, "unit": None, "expiry_date": None}
+
+    # Остаток можно считать только если известны количество и единица
+    # для КАЖДОЙ упаковки. Иначе частичная сумма была бы ошибочно показана
+    # как полный остаток.
+    quantities = [p["package_quantity"] for p in packages]
+    units = {p["package_unit"] for p in packages}
+    all_quantities_known = all(
+        p["package_quantity"] is not None and bool(p["package_unit"])
+        for p in packages
+    )
+    med = db.execute(
+        "SELECT intake_quantity, intake_unit FROM medications WHERE id = ?",
+        (med_id,),
+    ).fetchone()
+    intake_qty = med["intake_quantity"] if med else None
+    intake_unit = med["intake_unit"] if med else None
+
+    if not all_quantities_known or not quantities or len(units) != 1:
+        remaining = None
+        unit = None
+    else:
+        unit = next(iter(units))
+        consumed = 0.0
+        if intake_qty is not None and intake_unit == unit:
+            row = db.execute(
+                "SELECT COALESCE(SUM(intake_quantity), 0) AS total "
+                "FROM medication_intakes WHERE medication_id = ? AND status = 'taken' "
+                "AND deleted_at IS NULL AND intake_unit = ?",
+                (med_id, unit),
+            ).fetchone()
+            consumed = float(row["total"] or 0)
+        remaining = max(0.0, float(sum(quantities)) - consumed)
+
+    expiry_dates = [p["expiry_date"] for p in packages if p["expiry_date"]]
+    return {
+        "package_count": len(packages),
+        "remaining_quantity": remaining,
+        "unit": unit,
+        "expiry_date": min(expiry_dates) if expiry_dates else None,
+    }
+
+
 def _med_to_json(row, times):
     return {
         "id": row["id"],
         "name": row["name"],
+        "inn": row["inn"],
+        "dosage_form": row["dosage_form"],
+        "manufacturer": row["manufacturer"],
+        "reg_number": row["reg_number"],
         "dose_value": row["dose_value"],
         "dose_unit": row["dose_unit"],
         "instructions": row["instructions"] or "",
@@ -242,7 +326,19 @@ def _med_to_json(row, times):
         "comment": row["comment"] or "",
         "days": _mask_to_days(row["days_mask"]),
         "times": times,
+        "intake_quantity": row["intake_quantity"],
+        "intake_unit": row["intake_unit"],
     }
+
+
+def _parse_marking_payload(value):
+    """Валидирует необязательную привязку промаркированной упаковки."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("Маркировка: ожидается объект")
+    from mdlp_parser import parse_marking_code
+    return parse_marking_code(value.get("raw", ""))
 
 
 def _get_med(db, med_id):
@@ -251,6 +347,121 @@ def _get_med(db, med_id):
         (med_id, session["user_id"]),
     ).fetchone()
 
+
+def _save_gtin_override(db, med_id, fields, package_quantity=None, package_unit=None):
+    """Сохраняет только фактическое пользовательское отличие от публичного GTIN."""
+    package = db.execute(
+        "SELECT gtin FROM medication_packages WHERE medication_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (med_id,),
+    ).fetchone()
+    if not package:
+        return
+
+    gtin = package["gtin"]
+    public = None
+    try:
+        from drug_reference import lookup_drug_by_gtin
+        public = lookup_drug_by_gtin(gtin, user_id=None)
+    except Exception:
+        # Если публичный справочник недоступен, пользовательские данные всё
+        # равно должны сохраняться и иметь приоритет при следующем сканировании.
+        pass
+
+    if public:
+        same = (
+            fields["name"] == public.get("trade_name")
+            and fields["inn"] == public.get("mnn")
+            and fields["dosage_form"] == public.get("dosage_form")
+            and fields["manufacturer"] == public.get("manufacturer")
+            and fields["reg_number"] == public.get("reg_number")
+            and package_quantity == public.get("package_quantity")
+            and package_unit == public.get("package_unit")
+        )
+        if same:
+            db.execute(
+                "DELETE FROM medication_barcodes WHERE user_id = ? AND gtin = ?",
+                (session["user_id"], gtin),
+            )
+            return
+
+    db.execute(
+        """INSERT INTO medication_barcodes(
+             user_id, gtin, name, mnn, dosage_form, manufacturer, reg_number,
+             dose_value, dose_unit, intake_quantity, intake_unit,
+             package_quantity, package_unit, updated_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(user_id, gtin) DO UPDATE SET
+             name=excluded.name, mnn=excluded.mnn,
+             dosage_form=excluded.dosage_form, manufacturer=excluded.manufacturer,
+             reg_number=excluded.reg_number, dose_value=excluded.dose_value,
+             dose_unit=excluded.dose_unit, intake_quantity=excluded.intake_quantity,
+             intake_unit=excluded.intake_unit, package_quantity=excluded.package_quantity,
+             package_unit=excluded.package_unit, updated_at=datetime('now')""",
+        (
+            session["user_id"], gtin, fields["name"], fields["inn"],
+            fields["dosage_form"], fields["manufacturer"], fields["reg_number"],
+            fields["dose_value"], fields["dose_unit"], fields["intake_quantity"],
+            fields["intake_unit"], package_quantity, package_unit,
+        ),
+    )
+
+
+@reminders_bp.post("/api/medications/scan")
+@login_required
+def api_medication_scan():
+    """Разбирает Data Matrix локально и ищет GTIN в локальном справочнике МДЛП."""
+    data = _json_body()
+    if data is None:
+        return _bad_request()
+    try:
+        from mdlp_parser import parse_marking_code
+        parsed = parse_marking_code(data.get("code", ""))
+    except ValueError as e:
+        return jsonify(error=str(e), code="INVALID_DATAMATRIX"), 400
+
+    db = get_db()
+    existing = db.execute(
+        "SELECT medication_id FROM medication_packages WHERE user_id = ? AND sgtin = ? LIMIT 1",
+        (session["user_id"], parsed.sgtin),
+    ).fetchone()
+
+    drug = None
+    drug_reference = {"status": "disabled"}
+    try:
+        from drug_reference import DrugReferenceUnavailableError, lookup_drug_by_gtin
+        drug = lookup_drug_by_gtin(parsed.gtin, user_id=session["user_id"])
+        drug_reference = {"status": "found" if drug else "not_found"}
+    except DrugReferenceUnavailableError:
+        drug_reference = {"status": "unavailable"}
+    except Exception as e:
+        print(f"[mdlp-reference] scan lookup failed: {type(e).__name__}", flush=True)
+        drug_reference = {"status": "unavailable"}
+
+    audit(
+        "scan_medication_marking",
+        "medication_packages",
+        existing["medication_id"] if existing else None,
+        {"gtin": parsed.gtin, "has_existing": bool(existing),
+         "drug_reference_status": drug_reference["status"]},
+    )
+    return jsonify(
+        ok=True,
+        source="chestny_znak",
+        drug=drug,
+        drug_reference=drug_reference,
+        marking={
+            "gtin": parsed.gtin,
+            "serial_number": parsed.serial_number,
+            "sgtin": parsed.sgtin,
+            "raw": parsed.raw,
+            "batch_number": parsed.batch_number,
+            "expiry_date": parsed.expiry_date,
+            "production_date": parsed.production_date,
+            "already_registered": bool(existing),
+        },
+    )
 
 @reminders_bp.get("/api/medications")
 @login_required
@@ -261,7 +472,10 @@ def api_medications_list():
         (session["user_id"],),
     ).fetchall()
     times = _load_times(db, [r["id"] for r in rows])
-    return jsonify(medications=[_med_to_json(r, times.get(r["id"], [])) for r in rows])
+    return jsonify(medications=[
+        dict(_med_to_json(r, times.get(r["id"], [])), stock=_med_stock(db, r["id"]))
+        for r in rows
+    ])
 
 
 @reminders_bp.post("/api/medications")
@@ -281,6 +495,23 @@ def api_medication_create():
     except ValueError as e:
         return jsonify(error=str(e)), 400
 
+    try:
+        marking = _parse_marking_payload(data.get("marking"))
+        package_quantity, package_unit = _parse_optional_quantity(
+            data.get("package_quantity"), data.get("package_unit"), "Количество в упаковке"
+        )
+        purchase_date = None if not str(data.get("purchase_date") or "").strip() else parse_iso_date(
+            data["purchase_date"], None
+        ).isoformat()
+        expiry_date = marking.expiry_date if marking and marking.expiry_date else (
+            None if not str(data.get("expiry_date") or "").strip()
+            else parse_iso_date(data["expiry_date"], None).isoformat()
+        )
+        if expiry_date and purchase_date and expiry_date < purchase_date:
+            raise ValueError("Срок годности раньше даты покупки")
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+
     db = get_db()
     count = db.execute(
         "SELECT COUNT(*) AS c FROM medications WHERE user_id = ? AND deleted_at IS NULL",
@@ -289,21 +520,48 @@ def api_medication_create():
     if count >= MAX_MEDICATIONS:
         return jsonify(error=f"Достигнут предел: {MAX_MEDICATIONS} лекарств"), 400
 
-    cur = db.execute(
-        "INSERT INTO medications (user_id, name, dose_value, dose_unit, instructions, start_date, end_date, is_active, comment, days_mask, source) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')",
-        (session["user_id"], fields["name"], fields["dose_value"], fields["dose_unit"],
-         fields["instructions"], fields["start_date"], fields["end_date"], fields["is_active"],
-         fields["comment"], fields["days_mask"]),
-    )
-    med_id = cur.lastrowid
-    db.executemany(
-        "INSERT INTO medication_schedule (medication_id, time_of_day) VALUES (?, ?)",
-        [(med_id, t) for t in times],
-    )
-    db.commit()
+    try:
+        cur = db.execute(
+            "INSERT INTO medications (user_id, name, inn, dosage_form, manufacturer, reg_number, dose_value, dose_unit, instructions, start_date, end_date, is_active, comment, days_mask, intake_quantity, intake_unit, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session["user_id"], fields["name"], fields["inn"], fields["dosage_form"], fields["manufacturer"], fields["reg_number"],
+             fields["dose_value"], fields["dose_unit"], fields["instructions"],
+             fields["start_date"], fields["end_date"], fields["is_active"],
+             fields["comment"], fields["days_mask"], fields["intake_quantity"], fields["intake_unit"],
+             "chestny_znak" if marking else "manual"),
+        )
+        med_id = cur.lastrowid
+        db.executemany(
+            "INSERT INTO medication_schedule (medication_id, time_of_day) VALUES (?, ?)",
+            [(med_id, t) for t in times],
+        )
+        if marking:
+            # Проверка маркировки через внешний MDLP не выполняется при каждом
+            # сохранении. GTIN уже разрешён локальным справочником, а данные
+            # конкретной упаковки сохраняются как факт сканирования.
+            mdlp_status = "local_reference"
+            mdlp_data = None
 
-    audit("create_medication", "medications", med_id, {"times": len(times)})
+            db.execute(
+                "INSERT INTO medication_packages "
+                "(medication_id, user_id, gtin, serial_number, batch_number, sgtin, marking_code, status, checked_at, data_json, "
+                "package_quantity, package_unit, purchase_date, expiry_date, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, 'chestny_znak')",
+                (med_id, session["user_id"], marking.gtin, marking.serial_number,
+                 marking.batch_number, marking.sgtin, marking.raw, mdlp_status,
+                 json.dumps(mdlp_data, ensure_ascii=False) if mdlp_data is not None else None,
+                 package_quantity, package_unit, purchase_date, expiry_date),
+            )
+            _save_gtin_override(
+                db, med_id, fields, package_quantity=package_quantity,
+                package_unit=package_unit,
+            )
+        db.commit()
+    except sqlite3.IntegrityError:
+        db.rollback()
+        return jsonify(error="Эта упаковка «Честный знак» уже привязана к вашему лекарству"), 409
+
+    audit("create_medication", "medications", med_id, {"times": len(times), "source": "chestny_znak" if marking else "manual"})
     result = {"ok": True, "id": med_id}
     store_idempotent_response(session["user_id"], "api_medication_create", idem_key, "medications", med_id, result)
     return jsonify(result)
@@ -333,17 +591,30 @@ def api_medication_update(med_id):
             changed.append("times")
 
     db.execute(
-        "UPDATE medications SET name = ?, dose_value = ?, dose_unit = ?, instructions = ?, start_date = ?, "
-        "end_date = ?, is_active = ?, comment = ?, days_mask = ?, updated_at = datetime('now') WHERE id = ?",
-        (fields["name"], fields["dose_value"], fields["dose_unit"], fields["instructions"],
+        "UPDATE medications SET name = ?, inn = ?, dosage_form = ?, manufacturer = ?, reg_number = ?, "
+        "dose_value = ?, dose_unit = ?, instructions = ?, start_date = ?, end_date = ?, is_active = ?, "
+        "comment = ?, days_mask = ?, intake_quantity = ?, intake_unit = ?, updated_at = datetime('now') WHERE id = ?",
+        (fields["name"], fields["inn"], fields["dosage_form"], fields["manufacturer"], fields["reg_number"],
+         fields["dose_value"], fields["dose_unit"], fields["instructions"],
          fields["start_date"], fields["end_date"], fields["is_active"], fields["comment"],
-         fields["days_mask"], med_id),
+         fields["days_mask"], fields["intake_quantity"], fields["intake_unit"], med_id),
     )
     if times is not None:
         db.execute("DELETE FROM medication_schedule WHERE medication_id = ?", (med_id,))
         db.executemany(
             "INSERT INTO medication_schedule (medication_id, time_of_day) VALUES (?, ?)",
             [(med_id, t) for t in times],
+        )
+    package = db.execute(
+        "SELECT package_quantity, package_unit FROM medication_packages "
+        "WHERE medication_id = ? ORDER BY id DESC LIMIT 1",
+        (med_id,),
+    ).fetchone()
+    if package:
+        _save_gtin_override(
+            db, med_id, fields,
+            package_quantity=package["package_quantity"],
+            package_unit=package["package_unit"],
         )
     db.commit()
     audit("update_medication", "medications", med_id, {"fields": changed})
@@ -512,9 +783,10 @@ def api_intake_create():
     try:
         cur = db.execute(
             "INSERT INTO medication_intakes (user_id, medication_id, medication_name, dose_value, dose_unit, "
-            "scheduled_at, status, taken_at, comment, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')",
+            "intake_quantity, intake_unit, scheduled_at, status, taken_at, comment, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')",
             (session["user_id"], med_id, med["name"], med["dose_value"], med["dose_unit"],
-             scheduled_at, status, taken_at, comment),
+             med["intake_quantity"], med["intake_unit"], scheduled_at, status, taken_at, comment),
         )
         db.commit()
     except sqlite3.IntegrityError:

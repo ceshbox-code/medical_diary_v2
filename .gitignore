@@ -1,6 +1,7 @@
    .env
    data/
    backups/
+mdlp_reference_data/
    __pycache__/
    *.pycdeploy.sh
 deploy.conf

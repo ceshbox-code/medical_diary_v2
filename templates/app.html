@@ -123,8 +123,18 @@
 <div id="med-modal" class="modal" hidden><div class="modal-panel"><div class="modal-grabber"></div>
 <div class="modal-head"><div class="quick-icon food">💊</div><div class="modal-title"><h2 id="med-modal-title">Лекарство</h2><p>Название и дозу вводите по назначению врача</p></div><button type="button" class="close-btn" data-close="med-modal" aria-label="Закрыть">×</button></div>
 <form id="med-form" autocomplete="off" novalidate>
-<label for="med-name">Название</label><input id="med-name" maxlength="100">
-<div class="row"><div><label for="med-dose">Доза</label><input id="med-dose" type="text" inputmode="decimal" placeholder="Например: 500"></div><div><label for="med-unit">Единица</label><select id="med-unit"></select></div></div>
+<div class="med-scan-row"><button type="button" class="med-btn primary" id="med-scan-btn">📷 Сканировать «Честный знак»</button><span id="med-scan-status" class="field-hint"></span></div>
+<div id="med-marking-preview" class="med-marking-preview" hidden></div>
+<label for="med-name">Торговое наименование</label><input id="med-name" maxlength="100">
+<div class="row"><div><label for="med-inn">МНН</label><input id="med-inn" maxlength="255"></div><div><label for="med-form">Лекарственная форма</label><input id="med-form" maxlength="255"></div></div>
+<label for="med-manufacturer">Производитель</label><input id="med-manufacturer" maxlength="500">
+<label for="med-reg-number">Номер РУ</label><input id="med-reg-number" maxlength="50">
+<div class="row"><div><label for="med-dose">Дозировка</label><input id="med-dose" type="text" inputmode="decimal" placeholder="Например: 500"></div><div><label for="med-unit">Единица</label><select id="med-unit"></select></div></div>
+<div class="row"><div><label for="med-intake-quantity">Количество за приём</label><input id="med-intake-quantity" type="text" inputmode="decimal" placeholder="Например: 1"></div><div><label for="med-intake-unit">Единица</label><select id="med-intake-unit"></select></div></div>
+<fieldset class="med-package-fields"><legend>Упаковка</legend>
+<div class="row"><div><label for="med-package-quantity">Количество в упаковке</label><input id="med-package-quantity" type="text" inputmode="decimal" placeholder="Например: 30"></div><div><label for="med-package-unit">Единица</label><select id="med-package-unit"></select></div></div>
+<div class="row"><div><label for="med-purchase-date">Дата покупки</label><input id="med-purchase-date" type="date"></div><div><label for="med-expiry-date">Срок годности</label><input id="med-expiry-date" type="date"></div></div>
+</fieldset>
 <label for="med-instr">Как принимать <span class="muted">(необязательно)</span></label><input id="med-instr" maxlength="200" placeholder="Например: после еды">
 <label>Время приёма</label><div id="med-times" class="times-list"></div><button type="button" class="link-btn" id="med-time-add">+ Добавить время</button>
 <label>Дни недели</label><div id="med-days" class="chips"></div>
@@ -134,6 +144,13 @@
 <button type="submit" class="primary-action" id="med-save">Сохранить</button>
 <button type="button" class="link-btn danger-link" id="med-delete" hidden>Удалить лекарство</button>
 <div class="message" id="med-msg"></div></form></div></div>
+<div id="med-scan-modal" class="modal" hidden><div class="modal-panel med-scanner-panel"><div class="modal-grabber"></div>
+<div class="modal-head"><div class="quick-icon food">📷</div><div class="modal-title"><h2>Сканирование</h2><p>Наведите камеру на Data Matrix</p></div><button type="button" class="close-btn" id="med-scan-close" aria-label="Закрыть">×</button></div>
+<div class="med-scanner"><video id="med-scan-video" autoplay muted playsinline></video><div class="med-scanner-frame"></div></div>
+<p class="field-hint" id="med-scan-hint">Нужен доступ к камере. Сканирование работает только в защищённом контексте HTTPS.</p>
+<label for="med-scan-code">Или вставьте код вручную</label><input id="med-scan-code" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="4096" placeholder="0104…21…">
+<button type="button" class="primary-action" id="med-scan-manual">Проверить код</button>
+<div class="message" id="med-scan-msg"></div></div></div>
 <div id="rem-modal" class="modal" hidden><div class="modal-panel"><div class="modal-grabber"></div>
 <div class="modal-head"><div class="quick-icon glucose">🔔</div><div class="modal-title"><h2 id="rem-modal-title">Напоминание</h2><p>Напоминание об измерении</p></div><button type="button" class="close-btn" data-close="rem-modal" aria-label="Закрыть">×</button></div>
 <form id="rem-form" autocomplete="off" novalidate>
@@ -174,5 +191,5 @@ var USER_SETTINGS = {{ settings_json | safe }};
 var RANGES = {{ ranges_json | safe }};
 var DEFAULT_RANGES_JS = {{ default_ranges_json | safe }};
 </script>
-{% if is_admin %}<script src="/js/admin.js"></script>{% else %}<script src="/js/app.js?v=2"></script><script src="/js/meds.js?v=1"></script>{% endif %}
+{% if is_admin %}<script src="/js/admin.js"></script>{% else %}<script src="/js/app.js?v=2"></script><script src="/js/meds.js?v=2"></script>{% endif %}
 </body></html>

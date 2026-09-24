@@ -55,3 +55,11 @@ main{width:100%;padding:10px 16px 18px}.page-intro{margin:8px 2px 18px}.page-int
 .time-row .med-btn{flex:0 0 auto;padding:0}
 .danger-link{display:block;width:100%;margin-top:14px;text-align:center;color:var(--danger);font-size:14px}
 html.theme-dark #med-modal input,html.theme-dark #rem-modal input,html.theme-dark #intake-modal input{color-scheme:dark}
+
+.med-scan-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:10px}
+.med-scan-row .med-btn{min-height:46px}
+.med-marking-preview{margin:0 0 10px;padding:10px 12px;border:1px solid var(--success);border-radius:13px;background:var(--success-soft);color:var(--success);font-size:12px;line-height:1.45}
+.med-scanner-panel{padding-bottom:calc(22px + env(safe-area-inset-bottom))}
+.med-scanner{position:relative;overflow:hidden;margin:4px 0 10px;border-radius:18px;background:#000;aspect-ratio:4/3}
+.med-scanner video{display:block;width:100%;height:100%;object-fit:cover}
+.med-scanner-frame{position:absolute;left:18%;right:18%;top:18%;bottom:18%;border:2px solid rgba(255,255,255,.9);border-radius:18px;box-shadow:0 0 0 999px rgba(0,0,0,.2)}

@@ -1,0 +1,21 @@
+name: tests
+
+on:
+  push:
+    branches: ["main", "feature/**"]
+  pull_request:
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_PATH: ${{ runner.temp }}/medical_diary_test.db
+      MDLP_REFERENCE_DB: ${{ runner.temp }}/mdlp_reference.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m py_compile app.py backup.py reminders.py db.py security.py validators.py mdlp_parser.py mdlp_reference.py mdlp_import.py drug_reference.py
+      - run: python -m unittest discover -s tests -p "test_*.py"

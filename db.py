@@ -212,6 +212,10 @@ CREATE TABLE IF NOT EXISTS medications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  inn TEXT,
+  dosage_form TEXT,
+  manufacturer TEXT,
+  reg_number TEXT,
   dose_value REAL CHECK (dose_value IS NULL OR dose_value > 0),
   dose_unit TEXT,
   instructions TEXT,
@@ -220,6 +224,8 @@ CREATE TABLE IF NOT EXISTS medications (
   is_active INTEGER NOT NULL DEFAULT 1,
   comment TEXT,
   days_mask INTEGER NOT NULL DEFAULT 127 CHECK (days_mask BETWEEN 1 AND 127),
+  intake_quantity REAL,
+  intake_unit TEXT,
   source TEXT NOT NULL DEFAULT 'manual',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -229,6 +235,60 @@ CREATE TABLE IF NOT EXISTS medications (
 );
 
 CREATE INDEX IF NOT EXISTS idx_medications_user ON medications(user_id, deleted_at);
+
+-- Конкретная промаркированная упаковка лекарства (Data Matrix / Честный знак).
+-- Одна пользовательская запись лекарства может иметь несколько упаковок.
+CREATE TABLE IF NOT EXISTS medication_packages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  medication_id INTEGER NOT NULL REFERENCES medications(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  gtin TEXT NOT NULL,
+  serial_number TEXT NOT NULL,
+  batch_number TEXT,
+  sgtin TEXT NOT NULL,
+  marking_code TEXT NOT NULL,
+  status TEXT,
+  checked_at TEXT,
+  data_json TEXT,
+  source TEXT NOT NULL DEFAULT 'chestny_znak',
+  package_quantity REAL,
+  package_unit TEXT,
+  remaining_quantity REAL,
+  purchase_date TEXT,
+  expiry_date TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, sgtin)
+);
+
+CREATE INDEX IF NOT EXISTS idx_medication_packages_medication ON medication_packages(medication_id);
+CREATE INDEX IF NOT EXISTS idx_medication_packages_gtin ON medication_packages(gtin);
+
+-- Пользовательские исправления справочника по GTIN. Эти данные принадлежат
+-- конкретному пользователю и имеют приоритет над общей публичной выгрузкой.
+CREATE TABLE IF NOT EXISTS medication_barcodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  gtin TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mnn TEXT,
+  dosage_form TEXT,
+  manufacturer TEXT,
+  reg_number TEXT,
+  dose_value REAL,
+  dose_unit TEXT,
+  intake_quantity REAL,
+  intake_unit TEXT,
+  package_quantity REAL,
+  package_unit TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, gtin),
+  CHECK ((dose_value IS NULL) = (dose_unit IS NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_medication_barcodes_user_gtin
+  ON medication_barcodes(user_id, gtin);
 
 -- Времена суток приёма (HH:MM). Одна строка на каждое время.
 CREATE TABLE IF NOT EXISTS medication_schedule (
@@ -250,6 +310,8 @@ CREATE TABLE IF NOT EXISTS medication_intakes (
   medication_name TEXT NOT NULL,
   dose_value REAL,
   dose_unit TEXT,
+  intake_quantity REAL,
+  intake_unit TEXT,
   scheduled_at TEXT,
   status TEXT NOT NULL CHECK (status IN ('taken', 'skipped')),
   taken_at TEXT,
@@ -307,6 +369,33 @@ def init_db():
     conn = sqlite3.connect(DATABASE)
     conn.executescript(SCHEMA)
     conn.execute("PRAGMA journal_mode = WAL")
+
+    def ensure_columns(table, definitions):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for name, definition in definitions.items():
+            if name not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+    ensure_columns("medications", {
+        "inn": "TEXT",
+        "dosage_form": "TEXT",
+        "manufacturer": "TEXT",
+        "reg_number": "TEXT",
+        "intake_quantity": "REAL",
+        "intake_unit": "TEXT",
+    })
+    ensure_columns("medication_packages", {
+        "package_quantity": "REAL",
+        "package_unit": "TEXT",
+        "remaining_quantity": "REAL",
+        "purchase_date": "TEXT",
+        "expiry_date": "TEXT",
+        "batch_number": "TEXT",
+    })
+    ensure_columns("medication_intakes", {
+        "intake_quantity": "REAL",
+        "intake_unit": "TEXT",
+    })
 
     cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
     if "is_admin" not in cols:

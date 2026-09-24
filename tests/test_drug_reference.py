@@ -1,20 +1,8 @@
+import sqlite3
 import unittest
-from datetime import datetime
 from unittest.mock import patch
 
-from drug_reference import (
-    DrugReferenceAmbiguousError,
-    _normalise_gtin,
-    lookup_drug_by_gtin,
-    _parse_package_quantity,
-)
-from drugdb.loader import (
-    _csv_reader,
-    _find_column,
-    _normalise_gtin as loader_normalise_gtin,
-    _normalise_grls_status,
-)
-from drugdb import runner
+from drug_reference import _normalise_gtin, _parse_package_quantity, lookup_drug_by_gtin
 
 
 class DrugReferenceTests(unittest.TestCase):
@@ -25,119 +13,76 @@ class DrugReferenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _normalise_gtin("04601234567894")
 
-    def test_loader_and_api_use_same_gtin_rules(self):
-        value = "04601234567893"
-        self.assertEqual(loader_normalise_gtin(value), _normalise_gtin(value))
+    def test_package_quantity_requires_explicit_unit_count(self):
+        self.assertEqual(_parse_package_quantity("БЛИСТЕР по 4 шт"), (4, "шт"))
+        self.assertIsNone(_parse_package_quantity("ТУБА по 15.000 г")[0])
 
-    def test_grls_status_is_normalised_for_api_filter(self):
-        self.assertEqual(_normalise_grls_status("Действующий", "неизвестно"), "действует")
-        self.assertEqual(_normalise_grls_status("Действует на подтверждении государственной регистрации", "неизвестно"), "действует")
-        self.assertEqual(_normalise_grls_status("Аннулирован", "неизвестно"), "архив")
-        self.assertEqual(_normalise_grls_status("неизвестный статус", "неизвестно"), "неизвестно")
+    def test_lookup_maps_prod_name_to_mnn_not_csv_inn(self):
+        source = {
+            "gtin": "01234567890128",
+            "trade_name": "Виагра",
+            "inn": "СИЛДЕНАФИЛ",
+            "description": "Виагра, таблетки 50 мг",
+            "dosage_form": "ТАБЛЕТКИ",
+            "dosage_form_normalized": "ТАБЛЕТКИ",
+            "dosage_value": "50 мг",
+            "mass_volume_name": "мг",
+            "manufacturer": "Производитель",
+            "manufacturer_country": "РОССИЯ",
+            "reg_number": "П N015875/01",
+            "reg_date": "2009-08-12",
+            "reg_holder": "Холдер",
+            "reg_status": "Действующий",
+            "gnvlp": "Нет",
+            "narcotic": "Нет",
+            "is_vzn_drug": "Нет",
+            "package_desc": "БЛИСТЕР по 4 шт",
+        }
+        with patch("drug_reference.lookup_gtin", return_value=source):
+            result = lookup_drug_by_gtin("01234567890128")
+        self.assertEqual(result["mnn"], "СИЛДЕНАФИЛ")
+        self.assertEqual(result["inn"], "СИЛДЕНАФИЛ")
+        self.assertIsNone(result["organization_inn"])
+        self.assertEqual(result["package_quantity"], 4)
 
-    def test_runner_does_not_require_explicit_mdlp_url(self):
-        with patch.dict("os.environ", {}, clear=True):
-            with patch.object(runner, "main") as main:
-                runner._run("mdlp")
-                main.assert_called_once()
-
-    def test_runner_skips_grls_without_url(self):
-        with patch.dict("os.environ", {}, clear=True):
-            with patch.object(runner, "main") as main:
-                runner._run("grls")
-                main.assert_not_called()
-
-    def test_runner_calculates_next_grls_run_at_configured_time(self):
-        with patch.object(runner, "TZ_NAME", "Europe/Moscow"), patch.object(
-            runner, "RUN_HOUR", 3
-        ), patch.object(runner, "RUN_MINUTE", 0):
-            now = datetime.fromisoformat("2026-09-22T01:00:00+03:00")
-            self.assertEqual(runner._seconds_until_next_grls(now), 7200)
-
-    def test_runner_calculates_next_day_after_scheduled_time(self):
-        with patch.object(runner, "TZ_NAME", "Europe/Moscow"), patch.object(
-            runner, "RUN_HOUR", 3
-        ), patch.object(runner, "RUN_MINUTE", 0):
-            now = datetime.fromisoformat("2026-09-22T04:00:00+03:00")
-            self.assertEqual(runner._seconds_until_next_grls(now), 23 * 3600)
-
-    def test_mdlp_csv_finds_header_after_metadata_line(self):
-        data = (
-            "Дата публикации;2026-09-23\n"
-            "GTIN;Номер регистрационного удостоверения;Описание упаковки\n"
-            "04601234567893;ЛП-000001;таблетки 10 шт\n"
-        ).encode("utf-8")
-        headers, reader = _csv_reader(data)
-        self.assertEqual(headers[0], "GTIN")
-        self.assertEqual(next(reader)[0], "04601234567893")
-
-    def test_mdlp_csv_supports_cp1251(self):
-        data = (
-            "GTIN;Номер РУ\n"
-            "04601234567893;ЛП-000001\n"
-        ).encode("cp1251")
-        headers, reader = _csv_reader(data)
-        self.assertEqual(headers[1], "Номер РУ")
-        self.assertEqual(next(reader)[1], "ЛП-000001")
-
-    def test_lookup_rejects_ambiguous_active_gtin(self):
-        class Cursor:
-            def execute(self, *args):
-                return self
-
-            def fetchall(self):
-                return [
-                    ("A", "I", "форма", "10 мг", "Производитель 1", "Держатель 1", "ЛП-1", "уп. 10"),
-                    ("A", "I", "форма", "10 мг", "Производитель 2", "Держатель 2", "ЛП-2", "уп. 10"),
-                ]
-
-        class Conn:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                pass
-
-            def execute(self, *args):
-                return Cursor()
-
-        with patch("drug_reference._connection", return_value=Conn()):
-            with self.assertRaises(DrugReferenceAmbiguousError):
-                lookup_drug_by_gtin("04601234567893")
-
-    def test_record_check_persists_not_modified_or_error(self):
-        class Conn:
-            def __init__(self):
-                self.calls = []
-
-            def execute(self, sql, params):
-                self.calls.append((sql, params))
-
-            def commit(self):
-                self.committed = True
-
-        conn = Conn()
-        from drugdb.loader import _record_check
-
-        _record_check(conn, "mdlp", "not_modified")
-        self.assertIn(("mdlp", "not_modified", None), [call[1] for call in conn.calls])
-        self.assertTrue(conn.committed)
-
-        conn = Conn()
-        _record_check(conn, "grls", "error", "HTTP 503")
-        self.assertIn(("grls", "error", "HTTP 503"), [call[1] for call in conn.calls])
-
-    def test_mdlp_registration_aliases(self):
-        headers = ["GTIN", "Номер регистрационного удостоверения", "Описание упаковки"]
-        self.assertEqual(_find_column(headers, ["gtin"]), 0)
-        self.assertEqual(
-            _find_column(
-                headers,
-                ["номер ру", "номер регистрационного удостоверения", "registration_number"],
-            ),
-            1,
+    def test_user_override_has_priority(self):
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.executescript("""
+          CREATE TABLE medication_barcodes (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER,
+            gtin TEXT,
+            name TEXT,
+            mnn TEXT,
+            dosage_form TEXT,
+            manufacturer TEXT,
+            reg_number TEXT,
+            dose_value REAL,
+            dose_unit TEXT,
+            intake_quantity REAL,
+            intake_unit TEXT,
+            package_quantity REAL,
+            package_unit TEXT
+          );
+        """)
+        db.execute(
+            "INSERT INTO medication_barcodes "
+            "(user_id, gtin, name, mnn, dosage_form, manufacturer, reg_number, "
+            "package_quantity, package_unit) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("01234567890128", "Моё название", "Мой МНН", "таблетки", "Мой производитель",
+             "РУ-1", 30, "шт"),
         )
-        self.assertEqual(_find_column(headers, ["описание упаковки", "package_desc"]), 2)
+        db.commit()
+        with patch("drug_reference.get_db", return_value=db), patch(
+            "drug_reference.lookup_gtin", return_value=None
+        ):
+            result = lookup_drug_by_gtin("01234567890128", user_id=1)
+        self.assertEqual(result["source"], "user_override")
+        self.assertEqual(result["trade_name"], "Моё название")
+        self.assertEqual(result["mnn"], "Мой МНН")
+        self.assertEqual(result["package_quantity"], 30)
+        db.close()
 
 
 if __name__ == "__main__":

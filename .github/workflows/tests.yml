@@ -8,6 +8,8 @@ on:
 jobs:
   python-tests:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_PATH: ${{ runner.temp }}/medical_diary_test.db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -36,6 +36,7 @@ from db import get_db
 from security import (
     audit,
     login_required,
+    admin_required,
     get_idempotent_response,
     store_idempotent_response,
 )
@@ -1028,6 +1029,189 @@ def api_reminder_update(reminder_id):
     audit("update_reminder", "reminders", reminder_id, {"fields": changed})
     return jsonify(ok=True)
 
+
+
+
+# ------------------------------------------------------------ статистика админа
+# Только агрегированные метрики использования. Медицинские значения,
+# комментарии, названия продуктов и другие содержательные данные пользователю
+# с правами администратора здесь не выдаются.
+_ADMIN_ACTIVITY_ACTIONS = (
+    "create_glucose", "create_vitals", "create_food", "create_temperature",
+    "create_weight", "update_glucose", "update_vitals", "update_food",
+    "update_temperature", "update_weight", "delete_glucose", "delete_vitals",
+    "delete_food", "delete_temperature", "delete_weight",
+    "create_medication", "update_medication", "delete_medication",
+    "create_medication_intake", "update_medication_intake",
+    "delete_medication_intake", "create_reminder", "update_reminder",
+    "delete_reminder", "export_pdf", "ai_dynamics_summary",
+)
+
+def _admin_stats_days():
+    raw = request.args.get("days", "30")
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if days not in (7, 30, 90, 365, 0):
+        return None
+    return days
+
+
+@reminders_bp.get("/api/admin/statistics")
+@admin_required
+def api_admin_statistics():
+    days = _admin_stats_days()
+    if days is None:
+        return jsonify(error="Период должен быть 7, 30, 90, 365 или 0"), 400
+
+    db = get_db()
+    period_sql = "datetime('now', ?)" if days else None
+    period_param = (f"-{days} days",) if days else ()
+
+    def scalar(sql, params=()):
+        return db.execute(sql, params).fetchone()[0]
+
+    period_filter_audit = ""
+    audit_params = ()
+    if days:
+        period_filter_audit = " AND created_at >= datetime('now', ?)"
+        audit_params = period_param
+
+    users_total = scalar("SELECT COUNT(*) FROM users")
+    users_active = scalar("SELECT COUNT(*) FROM users WHERE status = 'active'")
+    users_disabled = scalar("SELECT COUNT(*) FROM users WHERE status <> 'active'")
+    visits = scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE action = 'login_success'" + period_filter_audit,
+        audit_params,
+    )
+    active_users = scalar(
+        "SELECT COUNT(DISTINCT user_id) FROM audit_log "
+        "WHERE action = 'login_success' AND user_id IS NOT NULL" + period_filter_audit,
+        audit_params,
+    )
+    active_days = scalar(
+        "SELECT COUNT(DISTINCT substr(created_at, 1, 10)) FROM audit_log "
+        "WHERE action = 'login_success' AND user_id IS NOT NULL" + period_filter_audit,
+        audit_params,
+    )
+
+    activity_placeholders = ",".join("?" for _ in _ADMIN_ACTIVITY_ACTIONS)
+    activity_params = list(_ADMIN_ACTIVITY_ACTIONS)
+    activity_where = f"action IN ({activity_placeholders})" + period_filter_audit
+    activity_count = scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE " + activity_where,
+        activity_params + list(audit_params),
+    )
+    pdf_exports = scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE action = 'export_pdf'" + period_filter_audit,
+        audit_params,
+    )
+    ai_requests = scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE action = 'ai_dynamics_summary'" + period_filter_audit,
+        audit_params,
+    )
+
+    total_records = 0
+    for table in (
+        "glucose_entries", "blood_pressure_entries", "food_entries",
+        "temperature_entries", "weight_entries",
+    ):
+        total_records += scalar(f"SELECT COUNT(*) FROM {table} WHERE deleted_at IS NULL")
+
+    medications = scalar("SELECT COUNT(*) FROM medications WHERE deleted_at IS NULL")
+    intakes = scalar("SELECT COUNT(*) FROM medication_intakes WHERE deleted_at IS NULL")
+
+    rows = db.execute(
+        """
+        SELECT
+          u.id, u.username, u.display_name, u.status, u.is_admin, u.created_at,
+          (SELECT MAX(a.created_at) FROM audit_log a
+             WHERE a.user_id = u.id AND a.action = 'login_success') AS last_login,
+          (SELECT COUNT(*) FROM audit_log a
+             WHERE a.user_id = u.id AND a.action = 'login_success'
+             {period}) AS visits,
+          (SELECT COUNT(DISTINCT substr(a.created_at, 1, 10)) FROM audit_log a
+             WHERE a.user_id = u.id AND a.action = 'login_success'
+             {period}) AS active_days,
+          (SELECT MAX(a.created_at) FROM audit_log a
+             WHERE a.user_id = u.id) AS last_activity,
+          (SELECT COUNT(*) FROM glucose_entries e
+             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS glucose_count,
+          (SELECT COUNT(*) FROM blood_pressure_entries e
+             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS vitals_count,
+          (SELECT COUNT(*) FROM food_entries e
+             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS food_count,
+          (SELECT COUNT(*) FROM temperature_entries e
+             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS temperature_count,
+          (SELECT COUNT(*) FROM weight_entries e
+             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS weight_count,
+          (SELECT COUNT(*) FROM medications e
+             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS medications_count,
+          (SELECT COUNT(*) FROM medication_intakes e
+             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS intakes_count,
+          (SELECT COUNT(*) FROM audit_log a
+             WHERE a.user_id = u.id AND a.action = 'export_pdf'
+             {period}) AS pdf_count,
+          (SELECT COUNT(*) FROM audit_log a
+             WHERE a.user_id = u.id AND a.action = 'ai_dynamics_summary'
+             {period}) AS ai_count
+        FROM users u
+        ORDER BY u.id
+        """.format(period=period_filter_audit),
+        audit_params * 2 if days else (),
+    ).fetchall()
+
+    # В запросе выше period встречается два раза (visits/active_days) плюс
+    # pdf/ai — всего четыре раза. Формируем параметры явно, чтобы порядок
+    # не зависел от изменений форматирования SQL.
+    user_sql = """
+        SELECT
+          u.id, u.username, u.display_name, u.status, u.is_admin, u.created_at,
+          (SELECT MAX(a.created_at) FROM audit_log a
+             WHERE a.user_id = u.id AND a.action = 'login_success') AS last_login,
+          (SELECT COUNT(*) FROM audit_log a
+             WHERE a.user_id = u.id AND a.action = 'login_success' {p}) AS visits,
+          (SELECT COUNT(DISTINCT substr(a.created_at, 1, 10)) FROM audit_log a
+             WHERE a.user_id = u.id AND a.action = 'login_success' {p}) AS active_days,
+          (SELECT MAX(a.created_at) FROM audit_log a WHERE a.user_id = u.id) AS last_activity,
+          (SELECT COUNT(*) FROM glucose_entries e WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS glucose_count,
+          (SELECT COUNT(*) FROM blood_pressure_entries e WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS vitals_count,
+          (SELECT COUNT(*) FROM food_entries e WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS food_count,
+          (SELECT COUNT(*) FROM temperature_entries e WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS temperature_count,
+          (SELECT COUNT(*) FROM weight_entries e WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS weight_count,
+          (SELECT COUNT(*) FROM medications e WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS medications_count,
+          (SELECT COUNT(*) FROM medication_intakes e WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS intakes_count,
+          (SELECT COUNT(*) FROM audit_log a WHERE a.user_id = u.id AND a.action = 'export_pdf' {p}) AS pdf_count,
+          (SELECT COUNT(*) FROM audit_log a WHERE a.user_id = u.id AND a.action = 'ai_dynamics_summary' {p}) AS ai_count
+        FROM users u
+        ORDER BY u.id
+    """.format(p=period_filter_audit)
+
+    if days:
+        user_params = audit_params * 4
+    else:
+        user_params = ()
+    user_rows = db.execute(user_sql, user_params).fetchall()
+
+    return jsonify(
+        period_days=days,
+        summary={
+            "users_total": users_total,
+            "users_active": users_active,
+            "users_disabled": users_disabled,
+            "visits": visits,
+            "active_users": active_users,
+            "active_days": active_days,
+            "activity_actions": activity_count,
+            "records_total": total_records,
+            "medications_total": medications,
+            "intakes_total": intakes,
+            "pdf_exports": pdf_exports,
+            "ai_requests": ai_requests,
+        },
+        users=[dict(r) for r in user_rows],
+    )
 
 @reminders_bp.delete("/api/reminders/<int:reminder_id>")
 @login_required

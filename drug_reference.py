@@ -38,16 +38,24 @@ def _normalise_gtin(value):
 
 _PACKAGE_QTY_PATTERNS = (
     re.compile(
-        r"(?<![\d.,])(?:№\s*)?(\d{1,6})\s*"
+        r"(?<![\\d.,])(?:№\\s*)?(\\d{1,6})\\s*"
         r"(?:таблет(?:ка|ки|ок)|капсул(?:а|ы)|драже|"
-        r"суппозитор(?:ий|ия|иев))\b",
+        r"суппозитор(?:ий|ия|иев)|штук|шт\\.?)\\b",
         re.I,
     ),
     re.compile(
-        r"(?<![\d.,])(?:№\s*)?(\d{1,6})\s*"
-        r"(?:ампул(?:а|ы)|флакон(?:а|ов)?|штук|шт\.?)\b",
+        r"(?<![\\d.,])(?:№\\s*)?(\\d{1,6})\\s*"
+        r"(?:ампул(?:а|ы)|флакон(?:а|ов)?)\\b",
         re.I,
     ),
+)
+
+_MULTIPLIED_PACKAGE_RE = re.compile(
+    r"(?<![\\d.,])(?P<mult>\\d{1,4})\\s*[xх×]\\s*"
+    r"[^,;]+?\\b(?:по)\\s*(?P<count>\\d{1,6})\\s*"
+    r"(?:таблет(?:ка|ки|ок)|капсул(?:а|ы)|драже|"
+    r"суппозитор(?:ий|ия|иев)|штук|шт\\.?)\\b",
+    re.I,
 )
 
 
@@ -55,6 +63,16 @@ def _parse_package_quantity(package_desc):
     text = str(package_desc or "").strip()
     if not text:
         return None, None
+
+    multiplied = _MULTIPLIED_PACKAGE_RE.findall(text)
+    multiplied_values = {int(mult) * int(count) for mult, count in multiplied}
+    if len(multiplied_values) == 1:
+        value = next(iter(multiplied_values))
+        if 1 <= value <= 1000000:
+            return value, "шт"
+    if len(multiplied_values) > 1:
+        return None, None
+
     matches = []
     for pattern in _PACKAGE_QTY_PATTERNS:
         matches.extend(pattern.findall(text))

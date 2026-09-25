@@ -15,6 +15,7 @@ class DrugReferenceTests(unittest.TestCase):
 
     def test_package_quantity_requires_explicit_unit_count(self):
         self.assertEqual(_parse_package_quantity("БЛИСТЕР по 4 шт"), (4, "шт"))
+        self.assertEqual(_parse_package_quantity("3 x БЛИСТЕР по 20 шт"), (60, "шт"))
         self.assertIsNone(_parse_package_quantity("ТУБА по 15.000 г")[0])
 
     def test_lookup_maps_prod_name_to_mnn_not_csv_inn(self):

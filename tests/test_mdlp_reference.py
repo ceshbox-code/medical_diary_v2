@@ -1,7 +1,6 @@
 import os
 import tempfile
 import unittest
-import sqlite3
 from unittest import mock
 
 from mdlp_import import EXPECTED_COLUMNS, import_csv
@@ -74,6 +73,18 @@ class MDLPReferenceTests(unittest.TestCase):
         with unittest.mock.patch.object(mdlp_reference, "REFERENCE_DB", self.path):
             self.assertIsNone(mdlp_reference.lookup_gtin("01234567890128"))
 
+    def test_failed_import_preserves_existing_dataset(self):
+        good = {"gtin": "01234567890128", "prod_name": "A", "prod_sell_name": "A", "reg_status": "Действующий"}
+        replacement = {"gtin": "01234567890129", "prod_name": "B", "prod_sell_name": "B", "reg_status": "Действующий"}
+        self.assertEqual(import_csv(_csv([good]), self.path), 1)
+        with self.assertRaises(ValueError):
+            import_csv(_csv([replacement, replacement]), self.path)
+        import mdlp_reference
+        with unittest.mock.patch.object(mdlp_reference, "REFERENCE_DB", self.path):
+            current = mdlp_reference.lookup_gtin("01234567890128")
+            self.assertIsNotNone(current)
+            self.assertEqual(current["trade_name"], "A")
+            self.assertIsNone(mdlp_reference.lookup_gtin("01234567890129"))
 
 if __name__ == "__main__":
     unittest.main()

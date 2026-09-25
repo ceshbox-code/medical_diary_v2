@@ -44,7 +44,7 @@ class DrugReferenceTests(unittest.TestCase):
             result = lookup_drug_by_gtin("01234567890128")
         self.assertEqual(result["mnn"], "СИЛДЕНАФИЛ")
         self.assertEqual(result["inn"], "СИЛДЕНАФИЛ")
-        self.assertEqual(result["organization_inn"], "83-2844990")
+        self.assertNotIn("organization_inn", result)
         self.assertEqual(result["package_quantity"], 4)
 
     def test_user_override_has_priority(self):

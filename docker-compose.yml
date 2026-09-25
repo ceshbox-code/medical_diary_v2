@@ -5,7 +5,7 @@ services:
     environment:
       TZ: ${TZ:-Europe/Moscow}
       MDLP_REFERENCE_DB: /reference/mdlp_reference.db
-      MDLP_EXPORT_URL: ${MDLP_EXPORT_URL:-https://xn--80aaani3am7aog.xn--80ajghhoc2aj1c8b.xn--p1ai/bi/api/opendata/7731376812-MDLPGtins/data/latest}
+      MDLP_EXPORT_URL: ${MDLP_EXPORT_URL:-https://xn--80aaani3am7aog.xn--80ajghhoc2aj1c8b.xn--p1ai/bi/api/opendata/7731376812-MDLPGtins/data/data-20260923-structure-20240611.csv}
       MDLP_UPDATE_INTERVAL_SECONDS: ${MDLP_UPDATE_INTERVAL_SECONDS:-604800}
     restart: unless-stopped
     volumes:

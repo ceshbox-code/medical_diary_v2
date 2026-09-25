@@ -75,7 +75,7 @@ class MDLPReferenceTests(unittest.TestCase):
 
     def test_failed_import_preserves_existing_dataset(self):
         good = {"gtin": "01234567890128", "prod_name": "A", "prod_sell_name": "A", "reg_status": "Действующий"}
-        replacement = {"gtin": "01234567890129", "prod_name": "B", "prod_sell_name": "B", "reg_status": "Действующий"}
+        replacement = {"gtin": "01234567890135", "prod_name": "B", "prod_sell_name": "B", "reg_status": "Действующий"}
         self.assertEqual(import_csv(_csv([good]), self.path), 1)
         with self.assertRaises(ValueError):
             import_csv(_csv([replacement, replacement]), self.path)
@@ -84,7 +84,7 @@ class MDLPReferenceTests(unittest.TestCase):
             current = mdlp_reference.lookup_gtin("01234567890128")
             self.assertIsNotNone(current)
             self.assertEqual(current["trade_name"], "A")
-            self.assertIsNone(mdlp_reference.lookup_gtin("01234567890129"))
+            self.assertIsNone(mdlp_reference.lookup_gtin("01234567890135"))
 
 if __name__ == "__main__":
     unittest.main()

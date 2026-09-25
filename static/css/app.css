@@ -78,3 +78,337 @@ html.theme-dark #med-modal input,html.theme-dark #rem-modal input,html.theme-dar
 #admin-stats-table{min-width:1000px}
 #admin-stats-table th,#admin-stats-table td{white-space:nowrap}
 @media(min-width:700px){.admin-stats-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+
+/* ==========================================================================
+   Mac OS X Panther — окно «Медицинский дневник»
+   Компоновка главного экрана в духе System Preferences.
+   Только CSS: HTML/JS/API и существующие id не изменяются.
+   ========================================================================== */
+
+/* Главное окно: чуть более компактная desktop-плотность */
+.app-shell{
+    max-width:800px;
+}
+
+main{
+    padding-top:12px;
+}
+
+/* Заголовок раздела */
+#page-input .page-intro{
+    margin:4px 2px 12px;
+    padding:0 2px;
+}
+
+#page-input .page-intro h1{
+    font-size:24px;
+    letter-spacing:-.3px;
+}
+
+#page-input .page-intro p{
+    font-size:12px;
+}
+
+/* Быстрые записи превращаются в «иконки настроек» */
+#page-input .quick-list{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:10px;
+    padding:12px;
+
+    border:1px solid #9ba2a9;
+    border-radius:9px;
+
+    background:
+        linear-gradient(
+            180deg,
+            #f3f4f5 0%,
+            #d9dcdf 48%,
+            #c9cdd0 50%,
+            #e7e8ea 100%
+        );
+
+    box-shadow:
+        0 1px 0 rgba(255,255,255,.9) inset,
+        0 2px 5px rgba(0,0,0,.16);
+}
+
+#page-input .quick-card{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+
+    min-height:116px;
+    padding:10px 7px;
+
+    border:1px solid #9ba2aa;
+    border-radius:9px;
+
+    text-align:center;
+
+    background:
+        linear-gradient(
+            180deg,
+            #ffffff 0%,
+            #f4f5f6 46%,
+            #d9dbdd 50%,
+            #eeeeef 100%
+        );
+
+    box-shadow:
+        0 1px 0 rgba(255,255,255,.95) inset,
+        0 2px 4px rgba(0,0,0,.17);
+}
+
+#page-input .quick-card:hover{
+    border-color:#6f91ba;
+    background:
+        linear-gradient(
+            180deg,
+            #ffffff,
+            #edf4fc 48%,
+            #d7e5f5 50%,
+            #f3f7fb
+        );
+}
+
+#page-input .quick-card:active{
+    transform:translateY(1px);
+    background:
+        linear-gradient(
+            180deg,
+            #c7d9ed,
+            #e7eef7
+        );
+    box-shadow:
+        0 1px 3px rgba(0,0,0,.22) inset;
+}
+
+#page-input .quick-icon{
+    width:60px;
+    height:60px;
+    flex:0 0 60px;
+
+    font-size:35px;
+
+    border-radius:15px;
+    border:1px solid #8f989f;
+
+    background:
+        radial-gradient(
+            circle at 35% 25%,
+            #ffffff 0%,
+            #f4f5f6 33%,
+            #d0d3d6 100%
+        );
+
+    box-shadow:
+        0 2px 3px rgba(0,0,0,.18),
+        0 1px 0 rgba(255,255,255,.95) inset;
+}
+
+#page-input .quick-copy{
+    align-items:center;
+    width:100%;
+}
+
+#page-input .quick-title{
+    font-size:13px;
+    line-height:1.15;
+    font-weight:700;
+    text-shadow:0 1px 0 rgba(255,255,255,.9);
+}
+
+#page-input .quick-sub{
+    margin-top:2px;
+    font-size:10px;
+    line-height:1.15;
+    font-weight:500;
+    color:#69737d;
+}
+
+#page-input .chevron{
+    display:none;
+}
+
+/* Заголовки секций — как подписи панелей Panther */
+#page-input .section-label{
+    margin:15px 2px 7px;
+}
+
+#page-input .section-label strong{
+    font-size:12px;
+    color:#414a53;
+}
+
+#page-input .section-label .link-btn{
+    font-size:12px;
+}
+
+/* Последние записи — единая панель */
+#page-input #dashboard-recent{
+    padding:5px 10px;
+
+    border:1px solid #a0a7ae;
+    border-radius:8px;
+
+    background:#fafafa;
+
+    box-shadow:
+        0 1px 0 rgba(255,255,255,.9) inset,
+        0 1px 3px rgba(0,0,0,.14);
+}
+
+#page-input #dashboard-recent .recent-card{
+    border:0;
+    border-bottom:1px solid #d2d5d8;
+    border-radius:0;
+
+    box-shadow:none;
+
+    background:transparent;
+}
+
+#page-input #dashboard-recent .recent-card:last-child{
+    border-bottom:0;
+}
+
+#page-input #dashboard-recent .recent-card:hover{
+    background:#dbe9fa;
+}
+
+#page-input #dashboard-recent .recent-title{
+    font-size:12px;
+}
+
+#page-input #dashboard-recent .recent-value{
+    font-size:11px;
+}
+
+/* Сегодня — компактная системная таблица */
+#page-input #day-summary{
+    border-radius:8px;
+
+    background:
+        linear-gradient(
+            180deg,
+            #fafafa,
+            #e5e7e9
+        );
+
+    box-shadow:
+        0 1px 3px rgba(0,0,0,.15);
+}
+
+#page-input #day-summary .day-stat{
+    padding:9px 5px;
+}
+
+#page-input #day-summary .num{
+    font-size:16px;
+}
+
+#page-input #day-summary .label{
+    font-size:10px;
+}
+
+/* История и лекарства получают вид отдельных «панелей» */
+#page-history .card,
+#page-meds .card,
+#page-settings .card{
+    border-radius:8px;
+}
+
+#page-history .trend-chart-wrap{
+    border-radius:7px;
+}
+
+#page-meds .med-card{
+    border-radius:8px;
+}
+
+#page-meds .med-card:hover{
+    border-color:#7593b7;
+}
+
+/* Panther-style details headers */
+details>summary{
+    cursor:pointer;
+    color:#39434d;
+    text-shadow:0 1px 0 rgba(255,255,255,.85);
+}
+
+details>summary::marker{
+    color:#65707a;
+}
+
+/* Desktop: 4 колонки — максимально похоже на System Preferences */
+@media(min-width:700px){
+    #page-input .quick-list{
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        gap:11px;
+        padding:14px;
+    }
+
+    #page-input .quick-card{
+        min-height:126px;
+    }
+
+    #page-input .quick-icon{
+        width:64px;
+        height:64px;
+        flex-basis:64px;
+        font-size:38px;
+    }
+
+    #page-input .quick-title{
+        font-size:13px;
+    }
+}
+
+/* На телефоне сохраняем компактную панель, но не превращаем её в
+   современную огромную карточку */
+@media(max-width:519px){
+    #page-input .quick-list{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        padding:9px;
+        gap:7px;
+    }
+
+    #page-input .quick-card{
+        min-height:100px;
+    }
+
+    #page-input .quick-icon{
+        width:52px;
+        height:52px;
+        flex-basis:52px;
+        font-size:31px;
+    }
+}
+
+/* Очень узкие экраны */
+@media(max-width:350px){
+    #page-input .quick-list{
+        gap:5px;
+        padding:6px;
+    }
+
+    #page-input .quick-card{
+        min-height:92px;
+    }
+
+    #page-input .quick-icon{
+        width:47px;
+        height:47px;
+        flex-basis:47px;
+        font-size:28px;
+    }
+
+    #page-input .quick-title{
+        font-size:12px;
+    }
+}

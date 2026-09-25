@@ -685,8 +685,19 @@
         $('med-form').value = out.drug.dosage_form || '';
         $('med-manufacturer').value = out.drug.manufacturer || '';
         $('med-reg-number').value = out.drug.reg_number || '';
-        $('med-dose').value = '';
-        $('med-unit').value = UNITS.indexOf('мг') >= 0 ? 'мг' : UNITS[0];
+        if (out.drug.source === 'user_override' && out.drug.dose_value_user !== null && out.drug.dose_value_user !== undefined) {
+          $('med-dose').value = fmtNum(out.drug.dose_value_user);
+          $('med-unit').value = out.drug.dose_unit || UNITS[0];
+        } else {
+          $('med-dose').value = '';
+          $('med-unit').value = UNITS.indexOf('мг') >= 0 ? 'мг' : UNITS[0];
+        }
+        if (out.drug.source === 'user_override' && out.drug.intake_quantity !== null && out.drug.intake_quantity !== undefined) {
+          $('med-intake-quantity').value = fmtNum(out.drug.intake_quantity);
+          $('med-intake-unit').value = out.drug.intake_unit || UNITS[0];
+        } else {
+          $('med-intake-quantity').value = '';
+        }
         if (out.drug.package_quantity !== null && out.drug.package_quantity !== undefined) {
           $('med-package-quantity').value = fmtNum(out.drug.package_quantity);
           if (out.drug.package_unit) { $('med-package-unit').value = out.drug.package_unit; }

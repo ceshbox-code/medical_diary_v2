@@ -1122,49 +1122,6 @@ def api_admin_statistics():
     medications = scalar("SELECT COUNT(*) FROM medications WHERE deleted_at IS NULL")
     intakes = scalar("SELECT COUNT(*) FROM medication_intakes WHERE deleted_at IS NULL")
 
-    rows = db.execute(
-        """
-        SELECT
-          u.id, u.username, u.display_name, u.status, u.is_admin, u.created_at,
-          (SELECT MAX(a.created_at) FROM audit_log a
-             WHERE a.user_id = u.id AND a.action = 'login_success') AS last_login,
-          (SELECT COUNT(*) FROM audit_log a
-             WHERE a.user_id = u.id AND a.action = 'login_success'
-             {period}) AS visits,
-          (SELECT COUNT(DISTINCT substr(a.created_at, 1, 10)) FROM audit_log a
-             WHERE a.user_id = u.id AND a.action = 'login_success'
-             {period}) AS active_days,
-          (SELECT MAX(a.created_at) FROM audit_log a
-             WHERE a.user_id = u.id) AS last_activity,
-          (SELECT COUNT(*) FROM glucose_entries e
-             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS glucose_count,
-          (SELECT COUNT(*) FROM blood_pressure_entries e
-             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS vitals_count,
-          (SELECT COUNT(*) FROM food_entries e
-             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS food_count,
-          (SELECT COUNT(*) FROM temperature_entries e
-             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS temperature_count,
-          (SELECT COUNT(*) FROM weight_entries e
-             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS weight_count,
-          (SELECT COUNT(*) FROM medications e
-             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS medications_count,
-          (SELECT COUNT(*) FROM medication_intakes e
-             WHERE e.user_id = u.id AND e.deleted_at IS NULL) AS intakes_count,
-          (SELECT COUNT(*) FROM audit_log a
-             WHERE a.user_id = u.id AND a.action = 'export_pdf'
-             {period}) AS pdf_count,
-          (SELECT COUNT(*) FROM audit_log a
-             WHERE a.user_id = u.id AND a.action = 'ai_dynamics_summary'
-             {period}) AS ai_count
-        FROM users u
-        ORDER BY u.id
-        """.format(period=period_filter_audit),
-        audit_params * 2 if days else (),
-    ).fetchall()
-
-    # В запросе выше period встречается два раза (visits/active_days) плюс
-    # pdf/ai — всего четыре раза. Формируем параметры явно, чтобы порядок
-    # не зависел от изменений форматирования SQL.
     user_sql = """
         SELECT
           u.id, u.username, u.display_name, u.status, u.is_admin, u.created_at,

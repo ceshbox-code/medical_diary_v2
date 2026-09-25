@@ -120,7 +120,8 @@ def lookup_gtin(gtin):
         "gnvlp": row[19],
         "narcotic": row[20],
         "is_vzn_drug": row[21],
-        "reg_status": row[23],\n        "organization_inn": row[22],
+        "reg_status": row[23],
+        "organization_inn": row[22],
     }
 
 

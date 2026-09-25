@@ -104,6 +104,39 @@
           <div class="range-row" id="range-row-temperature"><span>Температура тела, °C</span><input class="decimal-input" type="text" inputmode="decimal" id="range-temperature-low" oninput="scheduleSaveRanges()"><input class="decimal-input" type="text" inputmode="decimal" id="range-temperature-high" oninput="scheduleSaveRanges()"></div>
         </div><div class="message" id="ranges-msg"></div></div>
       </details></div>
+  <div class="card admin-section"><details open><summary>📊 Статистика использования</summary>
+    <div class="admin-stats-toolbar">
+      <div class="admin-stat-period">
+        <button type="button" class="admin-period-btn active" data-days="30">30 дней</button>
+        <button type="button" class="admin-period-btn" data-days="7">7 дней</button>
+        <button type="button" class="admin-period-btn" data-days="90">3 месяца</button>
+        <button type="button" class="admin-period-btn" data-days="365">Год</button>
+        <button type="button" class="admin-period-btn" data-days="0">Всё время</button>
+      </div>
+    </div>
+    <div class="admin-stats-grid" id="admin-stats-summary">
+      <div class="admin-stat"><span>Пользователи</span><strong id="stat-users-total">—</strong></div>
+      <div class="admin-stat"><span>Активные</span><strong id="stat-users-active">—</strong></div>
+      <div class="admin-stat"><span>Посещения</span><strong id="stat-visits">—</strong></div>
+      <div class="admin-stat"><span>Активные пользователи</span><strong id="stat-active-users">—</strong></div>
+      <div class="admin-stat"><span>Активные дни</span><strong id="stat-active-days">—</strong></div>
+      <div class="admin-stat"><span>Действия</span><strong id="stat-actions">—</strong></div>
+      <div class="admin-stat"><span>Записи дневника</span><strong id="stat-records">—</strong></div>
+      <div class="admin-stat"><span>Лекарства</span><strong id="stat-medications">—</strong></div>
+      <div class="admin-stat"><span>Приёмы лекарств</span><strong id="stat-intakes">—</strong></div>
+      <div class="admin-stat"><span>PDF-экспорты</span><strong id="stat-pdf">—</strong></div>
+      <div class="admin-stat"><span>Запросы оценки ИИ</span><strong id="stat-ai">—</strong></div>
+    </div>
+    <div class="table-wrap admin-stats-table-wrap">
+      <table id="admin-stats-table">
+        <thead><tr><th>Пользователь</th><th>Статус</th><th>Последний вход</th><th>Посещения</th><th>Активные дни</th><th>Последняя активность</th><th>Записи</th><th>Лекарства</th><th>Приёмы</th><th>PDF</th><th>ИИ</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="field-hint">Показаны только статистические метрики использования. Содержимое медицинских записей, значения показателей, комментарии и IP-адреса здесь не отображаются.</p>
+    <div class="message" id="stats-msg"></div>
+  </details></div>
+
 
 
     </section>

@@ -116,7 +116,7 @@ class AdminStatisticsApiTests(unittest.TestCase):
         self.assertEqual(summary["intakes_total"], 1)
         self.assertEqual(summary["pdf_exports"], 1)
         self.assertEqual(summary["ai_requests"], 1)
-        self.assertEqual(summary["activity_actions"], 3)
+        self.assertEqual(summary["activity_actions"], 4)
 
         user = next(item for item in body["users"] if item["id"] == 2)
         self.assertEqual(user["visits"], 2)

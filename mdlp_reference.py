@@ -90,7 +90,7 @@ def lookup_gtin(gtin):
                       prod_pack_1_desc, prod_pack_1_2, prod_pack_1_name,
                       prod_pack_1_size, completeness, cost_limit, glf_name,
                       glf_country, gnvlp, narcotic, is_vzn_drug, inn, reg_status
-               FROM mdlp_gtins WHERE gtin = ? LIMIT 1""",
+               FROM mdlp_gtins WHERE gtin = ? AND lower(reg_status) = 'действующий' LIMIT 1""",
             (gtin,),
         ).fetchone()
     if not row:

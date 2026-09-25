@@ -228,6 +228,85 @@
     }
   }
 
+
+  var statsDays = 30;
+
+  function setStat(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = value == null ? '—' : String(value);
+  }
+
+  function renderAdminStats(out) {
+    var s = out.summary || {};
+    setStat('stat-users-total', s.users_total);
+    setStat('stat-users-active', s.users_active);
+    setStat('stat-visits', s.visits);
+    setStat('stat-active-users', s.active_users);
+    setStat('stat-active-days', s.active_days);
+    setStat('stat-actions', s.activity_actions);
+    setStat('stat-records', s.records_total);
+    setStat('stat-medications', s.medications_total);
+    setStat('stat-intakes', s.intakes_total);
+    setStat('stat-pdf', s.pdf_exports);
+    setStat('stat-ai', s.ai_requests);
+
+    var tbody = document.querySelector('#admin-stats-table tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    (out.users || []).forEach(function (u) {
+      var tr = document.createElement('tr');
+      var values = [
+        (u.display_name || u.username) + (u.is_admin ? ' (админ)' : ''),
+        u.status === 'active' ? 'Активен' : 'Отключён',
+        u.last_login || '—',
+        u.visits,
+        u.active_days,
+        u.last_activity || '—',
+        (u.glucose_count || 0) + (u.vitals_count || 0) + (u.food_count || 0) +
+          (u.temperature_count || 0) + (u.weight_count || 0),
+        u.medications_count || 0,
+        u.intakes_count || 0,
+        u.pdf_count || 0,
+        u.ai_count || 0
+      ];
+      values.forEach(function (value) {
+        var td = document.createElement('td');
+        td.textContent = value == null ? '—' : String(value);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function loadAdminStats() {
+    try {
+      var res = await fetch('/api/admin/statistics?days=' + encodeURIComponent(statsDays));
+      if (res.status === 401) { window.location = '/login'; return; }
+      var out = {};
+      try { out = await res.json(); } catch (e) {}
+      if (!res.ok) throw new Error(out.error || ('HTTP ' + res.status));
+      renderAdminStats(out);
+      setMsg('stats-msg', '', true);
+    } catch (err) {
+      setMsg('stats-msg', friendlyErrorMessage(err), false);
+    }
+  }
+
+  function initAdminStats() {
+    document.querySelectorAll('.admin-period-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.admin-period-btn').forEach(function (item) {
+          item.classList.remove('active');
+        });
+        btn.classList.add('active');
+        statsDays = Number(btn.getAttribute('data-days')) || 0;
+        loadAdminStats();
+      });
+    });
+    loadAdminStats();
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('summary').forEach(function (summary) {
       summary.addEventListener('click', function (e) {
@@ -283,5 +362,6 @@
 
     loadUsers();
     loadBackupStatus();
+    initAdminStats();
   });
 })();

@@ -248,9 +248,7 @@ class MedicationScanApiTests(unittest.TestCase):
             "purchase_date": "2026-09-01",
         }
 
-        with patch("drug_reference.lookup_drug_by_gtin", return_value=drug), patch(
-            "mdlp_client.MDLPClient.find_public_sgtin", return_value=None
-        ):
+        with patch("drug_reference.lookup_drug_by_gtin", return_value=drug):
             response = self.client.post(
                 "/api/medications",
                 json=payload,

@@ -59,6 +59,13 @@ class MDLPReferenceTests(unittest.TestCase):
         self.assertEqual(result["reg_holder"], "Холдер")
         self.assertEqual(result["package_desc"], "БЛИСТЕР по 4 шт")
 
+    def test_inactive_registration_is_not_returned(self):
+        row = {"gtin": "01234567890128", "prod_name": "A", "prod_sell_name": "A", "reg_status": "Недействующий"}
+        self.assertEqual(import_csv(_csv([row]), self.path), 1)
+        import mdlp_reference
+        with mock.patch.object(mdlp_reference, "REFERENCE_DB", self.path):
+            self.assertIsNone(mdlp_reference.lookup_gtin("01234567890128"))
+
     def test_duplicate_gtin_is_rejected_without_partial_import(self):
         row = {"gtin": "01234567890128", "prod_name": "A", "prod_sell_name": "A", "reg_status": "Действующий"}
         with self.assertRaises(ValueError):

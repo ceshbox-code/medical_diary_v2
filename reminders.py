@@ -377,6 +377,13 @@ def _save_gtin_override(db, med_id, fields, package_quantity=None, package_unit=
             and fields["reg_number"] == public.get("reg_number")
             and package_quantity == public.get("package_quantity")
             and package_unit == public.get("package_unit")
+            # МНН/реквизиты/упаковка есть в публичном источнике, а схема
+            # приёма и пользовательская доза — нет. Ненулевые пользовательские
+            # значения поэтому всегда считаются фактической правкой.
+            and fields["dose_value"] is None
+            and fields["dose_unit"] is None
+            and fields["intake_quantity"] is None
+            and fields["intake_unit"] is None
         )
         if same:
             db.execute(

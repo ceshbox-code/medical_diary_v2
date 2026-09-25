@@ -101,7 +101,6 @@ def lookup_drug_by_gtin(gtin, user_id=None):
                 "trade_name": override["name"],
                 "mnn": override["mnn"],
                 "inn": override["mnn"],
-                "organization_inn": None,
                 "description": None,
                 "dosage_form": override["dosage_form"],
                 "dosage_form_normalized": override["dosage_form"],
@@ -135,14 +134,11 @@ def lookup_drug_by_gtin(gtin, user_id=None):
 
     package_quantity, package_unit = _parse_package_quantity(result["package_desc"])
 
-    # В текущем API поле inn исторически означает МНН. В исходном MDLP CSV
-    # одноимённое поле inn — ИНН организации, поэтому оно не переносится сюда.
     return {
         "gtin": result["gtin"],
         "trade_name": result["trade_name"],
         "mnn": result["inn"],
         "inn": result["inn"],
-        "organization_inn": result["organization_inn"],
         "description": result["description"],
         "dosage_form": result["dosage_form"],
         "dosage_form_normalized": result["dosage_form_normalized"],

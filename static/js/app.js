@@ -281,7 +281,7 @@ function showPage(name) {
   });
   try { localStorage.setItem('medical_diary_active_tab', name); } catch (e) {}
   if (name === 'history') { loadHistory(); }
-  if (name === 'meds' && window.MedsUI) { window.MedsUI.load(); }
+  if ((name === 'meds' || name === 'settings') && window.MedsUI) { window.MedsUI.load(); }
 }
 (function() {
   var saved = 'input';

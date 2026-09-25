@@ -269,6 +269,57 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_intake_slot
 
 CREATE INDEX IF NOT EXISTS idx_intakes_user_time ON medication_intakes(user_id, scheduled_at);
 
+-- Личный справочник «GTIN упаковки -> название/доза», который пользователь
+-- сам наполняет при первом сканировании штрихкода/DataMatrix конкретной
+-- упаковки (см. reminders.py: /api/medication-barcodes). Никаких обращений
+-- к внешним реестрам (ИС МДЛП/«Честный знак») не выполняется — только то,
+-- что пользователь один раз подтвердил вручную.
+CREATE TABLE IF NOT EXISTS medication_barcodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  gtin TEXT NOT NULL,
+  name TEXT NOT NULL,
+  dose_value REAL CHECK (dose_value IS NULL OR dose_value > 0),
+  dose_unit TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK ((dose_value IS NULL) = (dose_unit IS NULL)),
+  UNIQUE (user_id, gtin)
+);
+
+CREATE INDEX IF NOT EXISTS idx_medication_barcodes_user ON medication_barcodes(user_id, gtin);
+
+-- Локальный офлайн-кэш официальных открытых данных ЦРПТ (GTIN -> лекарство),
+-- еженедельная выгрузка "Сведения о лекарственных препаратах для медицинского
+-- применения, подлежащих обязательной маркировке" (не путать с платным
+-- BI-сервисом "Датамаркет" — это отдельный, официальный open-data раздел).
+-- Наполняется офлайн скриптом import_mdlp_gtins.py, сервис никогда не
+-- обращается за этими данными в интернет при обработке запроса пользователя.
+-- ВАЖНО: колонка inn в исходном файле ЦРПТ — это ИНН (налоговый номер)
+-- организации, зарегистрировавшей препарат, а НЕ международное непатентованное
+-- наименование (для него есть prod_name) — поэтому здесь она не хранится.
+-- prod_sell_name_norm — то же название в нижнем регистре (приведено в Python
+-- через str.lower(), а не SQL LOWER()/LIKE: у SQLite без расширения ICU
+-- регистронезависимость LIKE работает только для ASCII, кириллицу не
+-- сворачивает). Используется для поиска-подсказки при ручном вводе.
+CREATE TABLE IF NOT EXISTS mdlp_gtins (
+  gtin TEXT PRIMARY KEY,
+  prod_sell_name TEXT,   -- торговое наименование
+  prod_sell_name_norm TEXT, -- то же в нижнем регистре, для регистронезависимого поиска
+  prod_desc TEXT,        -- наименование товара на этикетке (полное)
+  prod_name TEXT,        -- МНН
+  dose_raw TEXT,         -- дозировка как есть у ЦРПТ, свободный текст (см. примечание в import_mdlp_gtins.py)
+  form_name TEXT,        -- лекарственная форма
+  gnvlp TEXT,            -- признак ЖНВЛП ('Да'/'Нет')
+  reg_status TEXT,       -- статус записи в ЕСКЛП ('Действующий'/'Недействующий')
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Индекс на prod_sell_name_norm создаётся не здесь, а в init_db() ниже,
+-- ПОСЛЕ возможного ALTER TABLE — иначе на уже существующей базе (где эта
+-- колонка ещё не появилась) CREATE TABLE IF NOT EXISTS окажется no-op'ом,
+-- а этот CREATE INDEX упадёт с "no such column" при старте приложения.
+
 -- Напоминания об измерениях (не о лекарствах — те строятся из графика).
 CREATE TABLE IF NOT EXISTS reminders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -284,6 +335,43 @@ CREATE TABLE IF NOT EXISTS reminders (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id, deleted_at);
+
+-- Подписки устройств на Web Push. endpoint — секретный адрес push-сервиса
+-- (в журнал аудита не пишется). Одна строка на устройство/браузер.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_success_at TEXT,
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id);
+
+-- Журнал отправленных уведомлений: одна строка на событие (лекарство или
+-- напоминание + плановое время + фаза). UNIQUE не даёт отправить одно и то же
+-- событие дважды, в том числе при повторных проходах планировщика.
+-- status: claimed (взято в работу), sent, retry (временный сбой, будет повтор),
+-- failed, suppressed (уже отмечено/записано — уведомление не нужно).
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('medication', 'reminder')),
+  ref_id INTEGER NOT NULL,
+  due_at TEXT NOT NULL,
+  phase TEXT NOT NULL CHECK (phase IN ('first', 'repeat')),
+  status TEXT NOT NULL CHECK (status IN ('claimed', 'sent', 'retry', 'failed', 'suppressed')),
+  attempts INTEGER NOT NULL DEFAULT 1,
+  sent_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (kind, ref_id, due_at, phase)
+);
 """
 
 
@@ -313,6 +401,25 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
     if "settings_json" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN settings_json TEXT")
+
+    mdlp_cols = [r[1] for r in conn.execute("PRAGMA table_info(mdlp_gtins)").fetchall()]
+    if mdlp_cols and "prod_sell_name_norm" not in mdlp_cols:
+        conn.execute("ALTER TABLE mdlp_gtins ADD COLUMN prod_sell_name_norm TEXT")
+        conn.execute(
+            "UPDATE mdlp_gtins SET prod_sell_name_norm = LOWER(prod_sell_name) WHERE prod_sell_name IS NOT NULL"
+        )
+        # LOWER() в SQLite сворачивает только ASCII, кириллицу оставляет как
+        # есть — для уже загруженных строк это не страшно (следующий запуск
+        # import_mdlp_gtins.py всё равно перезапишет колонку корректным,
+        # посчитанным в Python значением).
+    if mdlp_cols:
+        # Вне if выше и без "IF NOT EXISTS" колонки в PRAGMA — иначе на
+        # только что созданной этим же executescript(SCHEMA) таблице (колонка
+        # уже есть с самого начала) индекс не создался бы никогда. Условие
+        # "if mdlp_cols" тут по сути всегда истинно на этом этапе — таблица
+        # к этому моменту уже гарантированно существует (только что созданная
+        # SCHEMA или ранее существовавшая, только что мигрированная выше).
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mdlp_gtins_name_norm ON mdlp_gtins(prod_sell_name_norm)")
 
     username = os.getenv("ADMIN_USERNAME", "admin")
     password = os.getenv("ADMIN_PASSWORD")

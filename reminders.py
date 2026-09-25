@@ -1043,6 +1043,7 @@ _ADMIN_ACTIVITY_ACTIONS = (
     "delete_food", "delete_temperature", "delete_weight",
     "create_medication", "update_medication", "delete_medication",
     "create_medication_intake", "update_medication_intake",
+    "scan_medication_marking",
     "delete_medication_intake", "create_reminder", "update_reminder",
     "delete_reminder", "export_pdf", "ai_dynamics_summary",
 )
@@ -1066,7 +1067,6 @@ def api_admin_statistics():
         return jsonify(error="Период должен быть 7, 30, 90, 365 или 0"), 400
 
     db = get_db()
-    period_sql = "datetime('now', ?)" if days else None
     period_param = (f"-{days} days",) if days else ()
 
     def scalar(sql, params=()):

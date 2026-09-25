@@ -27,7 +27,7 @@ EXPECTED_COLUMNS = [
 
 DEFAULT_URL = os.getenv(
     "MDLP_EXPORT_URL",
-    "https://xn--80aaani3am7aog.xn--80ajghhoc2aj1c8b.xn--p1ai/bi/api/opendata/7731376812-MDLPGtins/data/latest",
+    "https://xn--80aaani3am7aog.xn--80ajghhoc2aj1c8b.xn--p1ai/bi/api/opendata/7731376812-MDLPGtins/data/data-20260923-structure-20240611.csv",
 ).strip()
 
 
